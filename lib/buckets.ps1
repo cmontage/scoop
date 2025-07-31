@@ -11,13 +11,13 @@ function Find-BucketDirectory {
         Root folder of bucket repository will be returned instead of 'bucket' subdirectory (if exists).
     #>
     param(
-        [string] $Name = 'main',
+        [string] $Name = 'official',
         [switch] $Root
     )
 
     # Handle info passing empty string as bucket ($install.bucket)
     if (($null -eq $Name) -or ($Name -eq '')) {
-        $Name = 'main'
+        $Name = 'official'
     }
     $bucket = "$bucketsdir\$Name"
 
