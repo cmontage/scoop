@@ -57,7 +57,7 @@ switch ($cmd) {
     'list' {
         $buckets = list_buckets
         if (!$buckets.Length) {
-            warn "No bucket found. Please run 'scoop bucket add main' to add the default 'main' bucket."
+            warn "No bucket found. Please run 'scoop bucket add <bucket name>' to add bucket."
             exit 2
         } else {
             $buckets
