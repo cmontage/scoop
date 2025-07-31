@@ -41,7 +41,7 @@ $all = $opt.a -or $opt.all
 # load config
 $configRepo = get_config SCOOP_REPO
 if (!$configRepo) {
-    $configRepo = 'https://gitee.com/scoop-installer/scoop'
+    $configRepo = 'https://github.com/ScoopInstaller/Scoop'
     set_config SCOOP_REPO $configRepo | Out-Null
 }
 
@@ -157,17 +157,17 @@ function Sync-Bucket {
     )
     Write-Host 'Updating Buckets...'
 
-    if (!(Test-Path (Join-Path (Find-BucketDirectory 'main' -Root) '.git'))) {
-        info "Converting 'main' bucket to git repo..."
-        $status = rm_bucket 'main'
-        if ($status -ne 0) {
-            abort "Failed to remove local 'main' bucket."
-        }
-        $status = add_bucket 'main' (known_bucket_repo 'main')
-        if ($status -ne 0) {
-            abort "Failed to add remote 'main' bucket."
-        }
-    }
+    # if (!(Test-Path (Join-Path (Find-BucketDirectory 'official' -Root) '.git'))) {
+    #     info "Converting 'official' bucket to git repo..."
+    #     $status = rm_bucket 'official'
+    #     if ($status -ne 0) {
+    #         abort "Failed to remove local 'official' bucket."
+    #     }
+    #     $status = add_bucket 'official' (known_bucket_repo 'official')
+    #     if ($status -ne 0) {
+    #         abort "Failed to add remote 'official' bucket."
+    #     }
+    # }
 
 
     $buckets = Get-LocalBucket | ForEach-Object {
@@ -300,7 +300,7 @@ function update($app, $global, $quiet = $false, $independent, $suggested, $use_c
     #endregion Workaround for #2952
 
     # region Workaround
-    # Workaround for https://gitee.com/scoop-installer/scoop/issues/2220 until install is refactored
+    # Workaround for https://github.com/ScoopInstaller/Scoop/issues/2220 until install is refactored
     # Remove and replace whole region after proper fix
     Write-Host 'Downloading new version'
     if (Test-Aria2Enabled) {
