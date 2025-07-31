@@ -1,0 +1,12 @@
+{
+    "main": "https://gitee.com/scoop-installer/Main",
+    "extras": "https://gitee.com/scoop-installer/Extras",
+    "versions": "https://gitee.com/scoop-installer/Versions",
+    "nirsoft": "https://gitee.com/scoop-installer/Nirsoft",
+    "sysinternals": "https://gitee.com/scoop-installer/scoop-sysinternals",
+    "php": "https://gitee.com/scoop-installer/PHP",
+    "nerd-fonts": "https://gitee.com/scoop-installer/scoop-nerd-fonts",
+    "nonportable": "https://gitee.com/scoop-installer/Nonportable",
+    "java": "https://gitee.com/scoop-installer/Java",
+    "games": "https://gitee.com/scoop-installer/scoop-games"
+}
