@@ -71,6 +71,8 @@ Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 您可以在 [ScoopInstaller/Install](https://github.com/ScoopInstaller/Install) 中找到有关安装程序的完整文档，包括高级安装配置。如果您对安装有任何疑问，请在那里创建新问题。
 
 ## 常用命令
+
+Scoop 常用命令
 ```powershell
 scoop update                     # 更新 scoop 及软件包列表
 scoop update *                   # 更新 app 目录所有应用
@@ -81,12 +83,17 @@ scoop bucket add <name> <url>    # 添加第三方 bucket
 scoop bucket rm <name>           # 删除 bucket
 scoop cleanup *                  # 清理所有已安装的旧版本软件
 scoop cache rm *                 # 清除下载缓存
-
+```
+应用相关
+```powershell
 scoop search <app>               # 搜索应用
 scoop-search <app>               # 高效率搜索应用，需要安装 scoop-search
 scoop install <app>              # 非全局安装应用
 scoop install <app> -g           # 全局安装应用 (需要管理员权限/添加前缀sudo)
+scoop install <bucket>/<app>     # 指定 bucket (软件源) 安装程序
 scoop uninstall <app>            # 非全局卸载应用
 scoop uninstall <app> -g         # 全局卸载应用 (需要管理员权限/添加前缀sudo)
-
+scoop update <app1> <app2>...    # 更新非全局应用
+scoop update <app1> <app2>... -g # 更新全局应用
+scoop reset <app>@<version>      # 同一程序不同版本之间切换
 ```
