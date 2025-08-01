@@ -40,7 +40,7 @@
 - 移除官方 main 桶，将我自建的官方集合 [official](https://github.com/cmontage/scoopbucket) 作为默认的 Bucket，并且移除默认 Bucket 是否存在的检测机制。
 - 内置 Bucket 添加 [official](https://github.com/cmontage/scoopbucket) 、[third](https://github.com/cmontage/scoopbucket-third) 。
 
-## Installation
+## 如何使用？
 
 ### 推荐安装方式
 
@@ -70,34 +70,23 @@ Invoke-RestMethod -Uri https://get.scoop.sh | Invoke-Expression
 
 您可以在 [ScoopInstaller/Install](https://github.com/ScoopInstaller/Install) 中找到有关安装程序的完整文档，包括高级安装配置。如果您对安装有任何疑问，请在那里创建新问题。
 
-### 常用命令
+## 常用命令
 ```powershell
-Usage: scoop <command> [<args>]  
-  
-Some useful commands are:  
-  
-alias       Manage scoop aliases # 管理指令的替身  
-bucket      Manage Scoop buckets # 管理软件仓库  
-cache       Show or clear the download cache # 查看与管理缓存  
-checkup     Check for potential problems # 检查问题
-cleanup     Cleanup apps by removing old versions # 清理缓存与旧版本软件包  
-config      Get or set configuration values # 配置Scoop  
-create      Create a custom app manifest # 创建自定义软件包  
-depends     List dependencies for an app # 查看依赖  
-export      Exports (an importable) list of installed apps # 导出软件包列表  
-help        Show help for a command # 显示帮助指令  
-hold        Hold an app to disable updates # 禁止软件包更新  
-home        Opens the app homepage # 打开软件包主页  
-info        Display information about an app # 显示软件包信息  
-install     Install apps # 安装软件包的指令  
-list        List installed apps # 列出所有已安装软件包  
-prefix      Returns the path to the specified app # 查看软件包路径  
-reset       Reset an app to resolve conflicts # 恢复软件包版本  
-search      Search available apps # 搜索软件包  
-status      Show status and check for new app versions # 查看软件包更新状态  
-unhold      Unhold an app to enable updates # 启动软件包更新  
-uninstall   Uninstall an app # 卸载软件包的指令  
-update      Update apps, or Scoop itself # 更新软件包  
-virustotal  Look for app hash on virustotal.com # 查看哈希值  
-which       Locate a shim/executable (similar to 'which' on Linux) # 查看可执行程序路径
+scoop update                     # 更新 scoop 及软件包列表
+scoop update *                   # 更新 app 目录所有应用
+scoop status                     # 检查哪些软件有更新
+scoop bucket list                # 列出所有已安装的 bucket
+scoop bucket add <name>          # 添加已知的内置 bucket
+scoop bucket add <name> <url>    # 添加第三方 bucket
+scoop bucket rm <name>           # 删除 bucket
+scoop cleanup *                  # 清理所有已安装的旧版本软件
+scoop cache rm *                 # 清除下载缓存
+
+scoop search <app>               # 搜索应用
+scoop-search <app>               # 高效率搜索应用，需要安装 scoop-search
+scoop install <app>              # 非全局安装应用
+scoop install <app> -g           # 全局安装应用 (需要管理员权限/添加前缀sudo)
+scoop uninstall <app>            # 非全局卸载应用
+scoop uninstall <app> -g         # 全局卸载应用 (需要管理员权限/添加前缀sudo)
+
 ```
