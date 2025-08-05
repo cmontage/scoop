@@ -1,5 +1,7 @@
 <h1 align="center">Scoop</h1>
 
+<p align="center"><img src="https://gcore.jsdelivr.net/gh/cmontage/scoopbucket@main/bin/scoop-ico.png" width="100" alt="Scoop Logo"></p>
+
 <!--<img src="scoop.png" alt="Long live Scoop!"/>-->
 <p align="center">
         <a href="https://github.com/ScoopInstaller/Scoop#what-does-scoop-do">Features</a>
@@ -55,7 +57,7 @@ irm https://gitee.com/cmontage/scoop/raw/main/install.ps1 -outfile 'install.ps1'
 # 可以不设全局文件夹ScoopGlobalDir，全局文件夹里的应用需要管理员权限
 .\install.ps1 -ScoopDir 'D:\Apps\Scoop\ScoopApps' -ScoopGlobalDir 'D:\Apps\Scoop\ScoopApps-G' -NoProxy
 
-# 下载 7zip git，因为我们之后如果要添加别的 Bucket，必须有 git、7zip
+# 已内置 'official' 桶 ，下载 7zip git，如果要添加别的 Bucket，必须有 git、7zip
 scoop install 7zip git
 ```
 
