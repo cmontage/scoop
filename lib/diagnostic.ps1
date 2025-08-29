@@ -26,16 +26,16 @@ function check_windows_defender($global) {
     return $true
 }
 
-function check_main_bucket {
-    if ((Get-LocalBucket) -notcontains 'main') {
-        warn 'Main bucket is not added.'
-        Write-Host "  run 'scoop bucket add main'"
+# function check_main_bucket {
+#     if ((Get-LocalBucket) -notcontains 'main') {
+#         warn 'Main bucket is not added.'
+#         Write-Host "  run 'scoop bucket add main'"
 
-        return $false
-    }
+#         return $false
+#     }
 
-    return $true
-}
+#     return $true
+# }
 
 function check_long_paths {
     if ([System.Environment]::OSVersion.Version.Major -lt 10 -or [System.Environment]::OSVersion.Version.Build -lt 1607) {
