@@ -48,6 +48,10 @@ function Set-PESubsystem($filePath, $targetSubsystem) {
 
 function Url_Proxy($url) {
 	try {
+ 		if ($url -match 'https://www\.python\.org/ftp/python/') {
+            success "direct: $url"
+	        return $url
+        }
 		if ($url -notmatch 'https?://.*?https?://') {
 			$ip = [System.Net.Dns]::GetHostAddresses(([System.Uri]$url).Host)[0].IPAddressToString
 			$ipInfo = $(Invoke-WebRequest -UseBasicParsing -Uri "https://ip.glimmer.ltd/1?ip=$ip" -Method Get -TimeoutSec 10).Content
