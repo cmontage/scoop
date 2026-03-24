@@ -54,12 +54,23 @@ function Url_Proxy($url) {
         }
 		if ($url -notmatch 'https?://.*?https?://') {
 			$ip = [System.Net.Dns]::GetHostAddresses(([System.Uri]$url).Host)[0].IPAddressToString
-			$ipInfo = $(Invoke-WebRequest -UseBasicParsing -Uri "https://ip.glimmer.ltd/1?ip=$ip" -Method Get -TimeoutSec 10).Content
-			if (-not $ip -or ($ipInfo -notmatch '\u4E2D\u56FD|\u5185\u7F51')) {
-				return uProxy($url)
+			if ($ip) {
+				# Try ip-api.com (reliable and free, no API key needed)
+				$ipInfo = $(Invoke-WebRequest -UseBasicParsing -Uri "http://ip-api.com/json/$ip" -Method Get -TimeoutSec 10 -ErrorAction SilentlyContinue).Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+				if ($ipInfo -and $ipInfo.country) {
+					# Check if country code is China (CN) or if it's a private/local IP
+					if ($ipInfo.countryCode -eq 'CN' -or $ipInfo.country -match '\u4E2D\u56FD' -or $ipInfo.query -match '^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)') {
+						# IP在中国或内网，直连
+						success "direct: $url"
+						return $url
+					}
+				}
 			}
+			# 无法获取IP信息或IP不在中国，使用代理
+			return uProxy($url)
 		}
 	} catch {
+		# 发生异常时使用代理（无法解析域名、网络错误等）
 		return uProxy($url)
 	}
 	success "direct: $url"
