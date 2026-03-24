@@ -1,6 +1,6 @@
 <h1 align="center">Scoop</h1>
 
-<p align="center"><img src="https://gcore.jsdelivr.net/gh/cmontage/scoopbucket@main/bin/scoop-ico.png" width="100" alt="Scoop Logo"></p>
+<p align="center"><img src="https://gcore.jsdelivr.net/gh/cmontage/scoopbucket@main/scoop.png" width="100" alt="Scoop Logo"></p>
 
 <!--<img src="scoop.png" alt="Long live Scoop!"/>-->
 <p align="center">
