@@ -52,6 +52,11 @@ function Url_Proxy($url) {
             success "direct: $url"
 	        return $url
         }
+		# 1122330.xyz 域名白名单直连
+		if ($url -match '1122330\.xyz') {
+			success "direct: $url (whitelisted domain)"
+			return $url
+		}
 		if ($url -notmatch 'https?://.*?https?://') {
 			$ip = [System.Net.Dns]::GetHostAddresses(([System.Uri]$url).Host)[0].IPAddressToString
 			if ($ip) {
