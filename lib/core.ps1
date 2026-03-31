@@ -58,13 +58,14 @@ function Url_Proxy($url) {
 			return $url
 		}
 		if ($url -notmatch 'https?://.*?https?://') {
-			$ip = [System.Net.Dns]::GetHostAddresses(([System.Uri]$url).Host)[0].IPAddressToString
-			if ($ip) {
+			$hostName = ([System.Uri]$url).Host
+			$ip = [System.Net.Dns]::GetHostAddresses($hostName)[0].IPAddressToString
+			if ($hostName) {
 				# Try ip-api.com (reliable and free, no API key needed)
-				$ipInfo = $(Invoke-WebRequest -UseBasicParsing -Uri "http://ip-api.com/json/$ip" -Method Get -TimeoutSec 10 -ErrorAction SilentlyContinue).Content | ConvertFrom-Json -ErrorAction SilentlyContinue
+				$ipInfo = $(Invoke-WebRequest -UseBasicParsing -Uri "http://ip-api.com/json/$hostName" -Method Get -TimeoutSec 10 -ErrorAction SilentlyContinue).Content | ConvertFrom-Json -ErrorAction SilentlyContinue
 				if ($ipInfo -and $ipInfo.country) {
 					# Check if country code is China (CN) or if it's a private/local IP
-					if ($ipInfo.countryCode -eq 'CN' -or $ipInfo.country -match '\u4E2D\u56FD' -or $ipInfo.query -match '^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)') {
+					if ($ipInfo.countryCode -eq 'CN' -or $ipInfo.country -match '\u4E2D\u56FD' -or ($ip -and $ip -match '^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.)')) {
 						# IP在中国或内网，直连
 						success "direct: $url"
 						return $url
