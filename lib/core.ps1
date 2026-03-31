@@ -52,8 +52,8 @@ function Url_Proxy($url) {
             success "direct: $url"
 	        return $url
         }
-		# 1122330.xyz 域名白名单直连
-		if ($url -match '1122330\.xyz') {
+		# 常见国内域名与自建域名白名单直连 (CDN / Geo-DNS 防误判)
+		if ($url -match '(1122330\.xyz|qq\.com|hdslb\.com|alicdn\.com|aliyundrive|163\.com|126\.net|baidupcs|dingtalk\.com|servicewechat\.com|wechat\.com)') {
 			success "direct: $url (whitelisted domain)"
 			return $url
 		}
