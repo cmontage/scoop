@@ -35,7 +35,8 @@ function install_app($app, $architecture, $global, $suggested, $use_cache = $tru
         $style = get_config CAT_STYLE
         if ($style) {
             $manifest | ConvertToPrettyJson | bat --no-paging --style $style --language json
-        } else {
+        }
+        else {
             $manifest | ConvertToPrettyJson
         }
         $answer = Read-Host -Prompt 'Continue installation? [Y/n]'
@@ -88,12 +89,14 @@ function Invoke-CachedDownload ($app, $version, $url, $to, $cookies = $null, $us
         ensure $cachedir | Out-Null
         Start-Download $url "$cached.download" $cookies
         Move-Item "$cached.download" $cached -Force
-    } else { Write-Host "Loading $(url_remote_filename $url) from cache" }
+    }
+    else { Write-Host "Loading $(url_remote_filename $url) from cache" }
 
     if (!($null -eq $to)) {
         if ($use_cache) {
             Copy-Item $cached $to
-        } else {
+        }
+        else {
             Move-Item $cached $to -Force
         }
     }
@@ -106,7 +109,8 @@ function Start-Download ($url, $to, $cookies) {
     try {
         $url = handle_special_urls $url
         Invoke-Download $url $to $cookies $progress
-    } catch {
+    }
+    catch {
         $e = $_.exception
         if ($e.Response.StatusCode -eq 'Unauthorized') {
             warn 'Token might be misconfigured.'
@@ -174,9 +178,11 @@ function get_filename_from_metalink($file) {
         if ($xr.ReadToFollowing('file') -and $xr.MoveToFirstAttribute()) {
             $filename = $xr.Value
         }
-    } catch [System.Xml.XmlException] {
+    }
+    catch [System.Xml.XmlException] {
         return $null
-    } finally {
+    }
+    finally {
         $xr.Close()
     }
 
@@ -247,12 +253,14 @@ function Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $
             Write-Host 'Loading ' -NoNewline
             Write-Host $(url_remote_filename $url) -f Cyan -NoNewline
             Write-Host ' from cache.'
-        } else {
+        }
+        else {
             $download_finished = $false
             # create aria2 input file content
             try {
                 $try_url = handle_special_urls $url
-            } catch {
+            }
+            catch {
                 if ($_.Exception.Response.StatusCode -eq 'Unauthorized') {
                     warn 'Token might be misconfigured.'
                 }
@@ -296,10 +304,12 @@ function Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $
             if ($_.StartsWith('(OK):')) {
                 $noNewLine = $true
                 $color = 'Green'
-            } elseif ($_.StartsWith('[') -and $_.EndsWith(']')) {
+            }
+            elseif ($_.StartsWith('[') -and $_.EndsWith(']')) {
                 $noNewLine = $true
                 $color = 'Cyan'
-            } elseif ($_.StartsWith('Download Results:')) {
+            }
+            elseif ($_.StartsWith('Download Results:')) {
                 $noNewLine = $false
             }
 
@@ -358,7 +368,8 @@ function Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $
         if (!($dir -eq $cachedir)) {
             if ($use_cache) {
                 Copy-Item $data.$url.source $data.$url.target
-            } else {
+            }
+            else {
                 Move-Item $data.$url.source $data.$url.target -Force
             }
         }
@@ -392,7 +403,8 @@ function Invoke-Download ($url, $to, $cookies, $progress) {
 
     try {
         $wres = $wreq.GetResponse()
-    } catch [System.Net.WebException] {
+    }
+    catch [System.Net.WebException] {
         $exc = $_.Exception
         $handledCodes = @(
             [System.Net.HttpStatusCode]::MovedPermanently, # HTTP 301
@@ -435,7 +447,8 @@ function Invoke-Download ($url, $to, $cookies, $progress) {
         function Trace-DownloadProgress ($read) {
             Write-DownloadProgress $read $total $url
         }
-    } else {
+    }
+    else {
         Write-Host "Downloading $url ($(filesize $total))..."
         function Trace-DownloadProgress {
             #no op
@@ -460,7 +473,8 @@ function Invoke-Download ($url, $to, $cookies, $progress) {
         }
         $sw.stop()
         Trace-DownloadProgress $totalRead
-    } finally {
+    }
+    finally {
         if ($progress) {
             [console]::CursorVisible = $true
             Write-Host
@@ -549,13 +563,15 @@ function Invoke-ScoopDownload ($app, $version, $manifest, $bucket, $architecture
     # download first
     if (Test-Aria2Enabled) {
         Invoke-CachedAria2Download $app $version $manifest $architecture $dir $cookies $use_cache $check_hash
-    } else {
+    }
+    else {
         foreach ($url in $urls) {
             $fname = url_filename $url
 
             try {
                 Invoke-CachedDownload $app $version $url "$dir\$fname" $cookies $use_cache
-            } catch {
+            }
+            catch {
                 Write-Host -f darkred $_
                 abort "URL $url is not valid"
             }
@@ -681,7 +697,8 @@ function Invoke-Installer {
         $progName = "$Path\$(coalesce $installer.file $Name[0])"
         if (!(is_in_dir $Path $progName)) {
             abort "Error in manifest: $((Get-Culture).TextInfo.ToTitleCase($type)) $progName is outside the app directory."
-        } elseif (!(Test-Path $progName)) {
+        }
+        elseif (!(Test-Path $progName)) {
             abort "$((Get-Culture).TextInfo.ToTitleCase($type)) $progName is missing."
         }
         $substitutions = @{
@@ -692,12 +709,14 @@ function Invoke-Installer {
         $fnArgs = substitute $installer.args $substitutions
         if ($progName.EndsWith('.ps1')) {
             & $progName @fnArgs
-        } else {
+        }
+        else {
             $status = Invoke-ExternalCommand $progName -ArgumentList $fnArgs -Activity "Running $type ..."
             if (!$status) {
                 if ($Uninstall) {
                     abort 'Uninstallation aborted.'
-                } else {
+                }
+                else {
                     abort "Installation aborted. You might need to run 'scoop uninstall $AppName' before trying again."
                 }
             }
@@ -751,9 +770,11 @@ function create_shims($manifest, $dir, $global, $arch) {
 
         if (Test-Path "$dir\$target" -PathType leaf) {
             $bin = "$dir\$target"
-        } elseif (Test-Path $target -PathType leaf) {
+        }
+        elseif (Test-Path $target -PathType leaf) {
             $bin = $target
-        } else {
+        }
+        else {
             $bin = (Get-Command $target).Source
         }
         if (!$bin) { abort "Can't shim '$target': File doesn't exist." }
@@ -769,7 +790,8 @@ function rm_shim($name, $shimdir, $app) {
         if ($app -and (Test-Path -Path $altShimPath -PathType Leaf)) {
             Write-Output "Removing shim '$name$_.$app'."
             Remove-Item $altShimPath
-        } elseif (Test-Path -Path $shimPath -PathType Leaf) {
+        }
+        elseif (Test-Path -Path $shimPath -PathType Leaf) {
             Write-Output "Removing shim '$name$_'."
             Remove-Item $shimPath
             $oldShims = Get-Item -Path "$shimPath.*" -Exclude '*.shim', '*.cmd', '*.ps1'
@@ -778,7 +800,8 @@ function rm_shim($name, $shimdir, $app) {
                     Write-Output "Removing shim '$name.exe'."
                     Remove-Item -Path "$shimdir\$name.exe"
                 }
-            } else {
+            }
+            else {
                 (@($oldShims) | Sort-Object -Property LastWriteTimeUtc)[-1] | Rename-Item -NewName { $_.Name -replace '\.[^.]*$', '' }
             }
         }
@@ -950,14 +973,16 @@ function ensure_none_failed($apps) {
         foreach ($global in $true, $false) {
             if ($global) {
                 $instArgs = @('--global')
-            } else {
+            }
+            else {
                 $instArgs = @()
             }
             if (failed $app $global) {
                 if (installed $app $global) {
                     info "Repair previous failed installation of $app."
                     & "$PSScriptRoot\..\libexec\scoop-reset.ps1" $app @instArgs
-                } else {
+                }
+                else {
                     warn "Purging previous failed installation of $app."
                     & "$PSScriptRoot\..\libexec\scoop-uninstall.ps1" $app @instArgs
                 }
@@ -996,7 +1021,8 @@ function persist_def($persist) {
     if ($persist -is [Array]) {
         $source = $persist[0]
         $target = $persist[1]
-    } else {
+    }
+    else {
         $source = $persist
         $target = $null
     }
@@ -1034,7 +1060,8 @@ function persist_data($manifest, $original_dir, $persist_dir) {
                     Move-Item -Force $source "$source.original"
                 }
                 # we don't have persist data in the store, move the source to target, then create link
-            } elseif (Test-Path $source) {
+            }
+            elseif (Test-Path $source) {
                 # ensure target parent folder exist
                 ensure (Split-Path -Path $target) | Out-Null
                 Move-Item $source $target
@@ -1042,7 +1069,8 @@ function persist_data($manifest, $original_dir, $persist_dir) {
                 # but we can't make a judgement that the data should be a file or directory...
                 # so we create a directory by default. to avoid this, use pre_install
                 # to create the source file before persisting (DON'T use post_install)
-            } else {
+            }
+            else {
                 $target = New-Object System.IO.DirectoryInfo($target)
                 ensure $target | Out-Null
             }
@@ -1052,7 +1080,8 @@ function persist_data($manifest, $original_dir, $persist_dir) {
                 # target is a directory, create junction
                 New-DirectoryJunction $source $target | Out-Null
                 attrib $source +R /L
-            } else {
+            }
+            else {
                 # target is a file, create hard link
                 New-Item -Path $source -ItemType HardLink -Value $target | Out-Null
             }
@@ -1075,7 +1104,8 @@ function unlink_persist_data($manifest, $dir) {
                     attrib -R /L $source_path
                     # remove the junction
                     Remove-Item -Path $source_path -Recurse -Force -ErrorAction SilentlyContinue
-                } else {
+                }
+                else {
                     # remove the hard link
                     Remove-Item -Path $source_path -Force -ErrorAction SilentlyContinue
                 }
@@ -1099,19 +1129,42 @@ function persist_permission($manifest, $global) {
 # test if there are running processes
 function test_running_process($app, $global) {
     $processdir = appdir $app $global | Convert-Path
-    $running_processes = Get-Process | Where-Object { $_.Path -like "$processdir\*" } | Out-String
+    $running_processes = Get-Process | Where-Object { $_.Path -like "$processdir\*" }
+    $running_processes_str = $running_processes | Out-String
 
     if ($running_processes) {
-        if (get_config IGNORE_RUNNING_PROCESSES) {
+        if (get_config 'IGNORE_RUNNING_PROCESSES') {
             warn "The following instances of `"$app`" are still running. Scoop is configured to ignore this condition."
-            Write-Host $running_processes
+            Write-Host $running_processes_str
             return $false
-        } else {
-            error "The following instances of `"$app`" are still running. Close them and try again."
-            Write-Host $running_processes
-            return $true
         }
-    } else {
+        else {
+            error "The following instances of `"$app`" are still running. Close them and try again."
+            Write-Host $running_processes_str
+            $answer = Read-Host 'Stop all processes for this program and continue? (y/n) [Default: y]'
+            if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'Y') {
+                $running_processes | ForEach-Object {
+                    Write-Host "Stopping process: $($_.ProcessName) (PID: $($_.Id))..."
+                    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+                }
+                # Wait briefly for processes to fully terminate
+                Start-Sleep -Milliseconds 500
+                # Verify all processes have stopped
+                $still_running = Get-Process | Where-Object { $_.Path -like "$processdir\*" }
+                if ($still_running) {
+                    error 'Some processes could not be stopped. Please close them manually and try again.'
+                    $still_running | Out-String | Write-Host
+                    return $true
+                }
+                Write-Host 'All processes have been stopped.' -ForegroundColor Green
+                return $false
+            }
+            else {
+                return $true
+            }
+        }
+    }
+    else {
         return $false
     }
 }
@@ -1122,7 +1175,8 @@ function New-DirectoryJunction($source, $target) {
     # test if this script is being executed inside a docker container
     if (Get-Service -Name cexecsvc -ErrorAction SilentlyContinue) {
         cmd.exe /d /c "mklink /j `"$source`" `"$target`""
-    } else {
+    }
+    else {
         New-Item -Path $source -ItemType Junction -Value $target
     }
 }
