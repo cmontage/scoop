@@ -157,17 +157,25 @@ function Sync-Bucket {
     )
     Write-Host 'Updating Buckets...'
 
-    # if (!(Test-Path (Join-Path (Find-BucketDirectory 'official' -Root) '.git'))) {
-    #     info "Converting 'official' bucket to git repo..."
-    #     $status = rm_bucket 'official'
-    #     if ($status -ne 0) {
-    #         abort "Failed to remove local 'official' bucket."
-    #     }
-    #     $status = add_bucket 'official' (known_bucket_repo 'official')
-    #     if ($status -ne 0) {
-    #         abort "Failed to add remote 'official' bucket."
-    #     }
-    # }
+    $officialBucketRoot = Find-BucketDirectory 'official' -Root
+    if ((Test-Path $officialBucketRoot) -and !(Test-Path (Join-Path $officialBucketRoot '.git'))) {
+        if (!(Test-GitAvailable)) {
+            warn "Official bucket is not a git repository and Git is not available. Skipping conversion."
+            warn "Install Git first ('scoop install git') then run 'scoop update' again."
+        } else {
+            info "Converting 'official' bucket to git repo..."
+            $officialRepo = known_bucket_repo 'official'
+            # Remove the old non-git bucket
+            Remove-Item $officialBucketRoot -Recurse -Force -ErrorAction SilentlyContinue
+            # Clone it as a proper git repository
+            Invoke-Git -ArgumentList @('clone', '-q', $officialRepo, $officialBucketRoot)
+            if ($LASTEXITCODE -eq 0) {
+                success "Successfully converted 'official' bucket to git repo."
+            } else {
+                warn "Failed to clone 'official' bucket from '$officialRepo'. Please run 'scoop bucket rm official' and 'scoop bucket add official' manually."
+            }
+        }
+    }
 
 
     $buckets = Get-LocalBucket | ForEach-Object {
