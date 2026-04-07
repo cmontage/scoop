@@ -68,10 +68,15 @@ function Url_Proxy($url) {
                 } else {
                     $ip = $null
                     if (Get-Command "Resolve-DnsName" -ErrorAction SilentlyContinue) {
-                        $ip = (Resolve-DnsName -Name $hostName -Server "223.5.5.5" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty IPAddress -First 1)
+                        try {
+                            $dnsResults = Resolve-DnsName -Name $hostName -Server "223.5.5.5" -ErrorAction SilentlyContinue
+                            $ip = ($dnsResults | Where-Object { $_.QueryType -in @('A', 'AAAA') -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
+                        } catch {}
                     }
                     if (!$ip) {
-                        $ip = [System.Net.Dns]::GetHostAddresses($hostName)[0].IPAddressToString
+                        try {
+                            $ip = [System.Net.Dns]::GetHostAddresses($hostName) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString
+                        } catch {}
                     }
                 }
 
