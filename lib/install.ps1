@@ -1143,10 +1143,30 @@ function test_running_process($app, $global) {
             Write-Host $running_processes_str
             $answer = Read-Host 'Stop all processes for this program and continue? (y/n) [Default: y]'
             if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'Y') {
-                $running_processes | ForEach-Object {
-                    Write-Host "Stopping process: $($_.ProcessName) (PID: $($_.Id))..."
-                    Stop-Process -Id $_.Id -Force -ErrorAction SilentlyContinue
+                $stop_failed = $false
+                try {
+                    $running_processes | ForEach-Object {
+                        Write-Host "Stopping process: $($_.ProcessName) (PID: $($_.Id))..."
+                        Stop-Process -Id $_.Id -Force -ErrorAction Stop
+                    }
                 }
+                catch {
+                    $stop_failed = $true
+                    warn 'Stopping processes failed with current privileges. Trying as administrator...'
+                }
+
+                if ($stop_failed -and -not (is_admin)) {
+                    $pids = @($running_processes | Where-Object { $_ -and $_.Id } | Select-Object -ExpandProperty Id -Unique)
+                    if ($pids.Count -gt 0) {
+                        $host_exe = (Get-Process -Id $PID).Path
+                        $stop_script = "$ErrorActionPreference = 'Stop'; Stop-Process -Id $($pids -join ',') -Force"
+                        $elevated_ok = Invoke-ExternalCommand -FilePath $host_exe -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $stop_script) -Activity 'Retrying process stop as administrator...' -RunAs
+                        if (!$elevated_ok) {
+                            warn 'Stopping processes as administrator failed.'
+                        }
+                    }
+                }
+
                 # Wait briefly for processes to fully terminate
                 Start-Sleep -Milliseconds 500
                 # Verify all processes have stopped
