@@ -87,16 +87,40 @@ function Url_Proxy($url) {
                         return $url
                     }
 
-                    # Determine physical location
-                    $ipInfoRaw = curl.exe -s "http://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true"
-                    $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                    if ($ipInfo -and $ipInfo.proCode) {
-                        # Location in China (including HK, MO, TW)
-                        if ($ipInfo.proCode -ne "999999") {
-                            success "direct: $url (China)"
-                            return $url
+                    # Determine physical location via geolocation APIs
+                    $isChina = $null
+
+                    # Primary: PCOnline whois API
+                    try {
+                        $ipInfoRaw = curl.exe -s --connect-timeout 3 "http://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true"
+                        $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                        if ($ipInfo -and $ipInfo.proCode) {
+                            $isChina = ($ipInfo.proCode -ne "999999")
                         }
+                    } catch {}
+
+                    # Fallback: ip-api.com (free, no key required, 45 req/min)
+                    if ($null -eq $isChina) {
+                        try {
+                            $ipApiRaw = curl.exe -s --connect-timeout 3 "http://ip-api.com/json/${ip}?fields=status,countryCode"
+                            $ipApi = $ipApiRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                            if ($ipApi -and $ipApi.status -eq 'success') {
+                                $isChina = ($ipApi.countryCode -eq 'CN')
+                            }
+                        } catch {}
                     }
+
+                    if ($isChina -eq $true) {
+                        success "direct: $url (China)"
+                        return $url
+                    }
+                    if ($isChina -eq $false) {
+                        # Confirmed foreign IP, use proxy
+                        return uProxy($url)
+                    }
+                    # All APIs failed, default to direct (avoid false proxy)
+                    warn "geo-lookup failed for $ip, defaulting to direct: $url"
+                    return $url
                 }
             }
             # Default to proxy for foreign/unknown
