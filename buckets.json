@@ -1,6 +1,7 @@
 {
     "official": "https://gitee.com/cmontage/scoopbucket",
     "third": "https://gitee.com/cmontage/scoopbucket-third",
+    "soup": "https://gitee.com/cmontage/scoopbucket-soup",
     "main": "https://gitee.com/scoop-installer/Main",
     "extras": "https://gitee.com/scoop-installer/Extras",
     "versions": "https://gitee.com/scoop-installer/Versions",
