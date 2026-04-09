@@ -13,34 +13,90 @@
 
 ---
 
-<!-- <p align="center">
-    <a href="https://github.com/ScoopInstaller/Scoop">
-        <img src="https://img.shields.io/github/languages/code-size/ScoopInstaller/Scoop.svg" alt="Code Size" />
+<p align="center">
+    <a href="https://github.com/cmontage/scoop">
+        <img src="https://img.shields.io/github/languages/code-size/cmontage/scoop.svg" alt="Code Size" />
     </a>
-    <a href="https://github.com/ScoopInstaller/Scoop">
-        <img src="https://img.shields.io/github/repo-size/ScoopInstaller/Scoop.svg" alt="Repository size" />
-    </a>
-    <a href="https://github.com/ScoopInstaller/Scoop/actions/workflows/ci.yml">
-        <img src="https://github.com/ScoopInstaller/Scoop/actions/workflows/ci.yml/badge.svg" alt="Scoop Core CI Tests" />
-    </a>
-    <a href="https://discord.gg/s9yRQHt">
-        <img src="https://img.shields.io/badge/chat-on%20discord-7289DA.svg" alt="Discord Chat" />
-    </a>
-    <a href="https://gitter.im/lukesampson/scoop">
-        <img src="https://badges.gitter.im/lukesampson/scoop.png" alt="Gitter Chat" />
+    <a href="https://github.com/cmontage/scoop">
+        <img src="https://img.shields.io/github/repo-size/cmontage/scoop.svg" alt="Repository size" />
     </a>
     <a href="./LICENSE">
-        <img src="https://img.shields.io/badge/license-UNLICENSE%20or%20MIT-blue" alt="License" />
+        <img src="https://img.shields.io/badge/license-UNLICENSE%20or%20MIT-green" alt="License" />
     </a>
-</p> -->
+</p>
 
-该 Scoop 基于 [官方Scoop](https://github.com/ScoopInstaller/Scoop) 修改. 
+该 Scoop 基于 [官方 Scoop](https://github.com/ScoopInstaller/Scoop) 修改，针对**中国大陆网络环境**进行了深度优化，并新增了多项实用特性。
 
-## 修改的内容
+---
 
-- 自动代理加速国外应用资源下载链接。
-- 移除官方 main 桶，将我自建的官方集合 [official](https://github.com/cmontage/scoopbucket) 作为默认的 Bucket，并且移除默认 Bucket 是否存在的检测机制。
-- 内置 Bucket 添加 [official](https://github.com/cmontage/scoopbucket) 、[third](https://github.com/cmontage/scoopbucket-third) 。
+## 与官方 Scoop 的区别
+
+### 🚀 智能代理加速
+
+原版 Scoop 下载国外资源时经常因为网络问题失败或者速度极慢。本版本通过**基于 IP 地理位置的智能代理**自动加速下载：
+
+- **基于真实 IP 判断**：通过阿里云 DNS（`223.5.5.5`）解析域名的真实 IP 地址，再通过国内 IP 归属地查询（太平洋电脑网 whois）判断服务器物理位置。
+- **自动路由**：
+  - 国内 IP → **直连下载**（无需代理，保证速度）
+  - 国外 IP → **自动走 Cloudflare 代理加速**
+  - 内网 / Fake-IP 地址 → **自动直连**（兼容本地代理环境如 Clash 等）
+- **自定义白名单**：自建域名自动跳过代理。
+- **可配置代理地址**：通过 `scoop config URL_PROXY <url>` 自定义代理服务器。
+
+> 相比原版手动配置代理或完全无加速的方式，本方案免维护、零配置，开箱即用。
+
+### 🔄 自动停止运行中的进程
+
+原版 Scoop 在更新/卸载应用时，如果检测到应用进程仍在运行，会直接报错并中止操作，需要用户手动关闭进程后重试。
+
+该版本改进了这一流程：
+
+- **交互式提示**：检测到运行中的进程时，提示用户 `Stop all processes for this program and continue? (y/n)`，回车默认 `y`。
+- **自动停止进程**：选择 `y` 后自动停止所有相关进程。
+- **自动提权重试**：如果当前权限不足以停止进程（如全局安装的应用），自动以管理员权限重试停止。
+- **完整性验证**：停止后自动验证进程是否全部退出，确保更新流程安全。
+- **可配置跳过**：通过 `scoop config IGNORE_RUNNING_PROCESSES true` 配置忽略运行中进程的检测，直接覆盖更新。
+
+### 📦 自定义 Bucket（软件源）体系
+
+| 对比项 | 官方 Scoop | 本版本 |
+|--------|-----------|--------|
+| 默认 Bucket | `main`（GitHub 托管） | `official`（Gitee 镜像，自建聚合桶） |
+| Bucket 仓库源 | GitHub | **Gitee 镜像**（国内访问快） |
+| 默认 Bucket 检测 | 检测 `main` 桶是否存在 | **移除检测**，避免不必要的报错 |
+| 内置已知 Bucket | 仅官方桶 | 额外添加 `official`、`third` 和 `soup` |
+
+- **[official](https://github.com/cmontage/scoopbucket)**：自建官方集合桶，聚合多个官方桶并聚合。
+- **[third](https://github.com/cmontage/scoopbucket-third)**：第三方应用集合桶，收录其他人自建的桶。
+- **[soup](https://github.com/cmontage/scoopbucket-soup)**：我自建的应用桶，优化安装/卸载逻辑，提供一些自己用得到的应用（持续更新中）。
+- 所有内置已知桶的 URL 均改为 **Gitee 镜像**，确保 `scoop bucket add <name>` 快速可用。
+
+### 🔧 Bucket 自动 Git 初始化
+
+原版 Scoop 通过 zip 包安装时，默认 Bucket 目录没有 `.git` 元数据，导致后续 `scoop update` 无法正常拉取更新。
+
+本版本在执行 `scoop update` 时自动检测：
+
+- 如果 `official` 桶不是 Git 仓库，自动删除旧目录并以 `git clone` 重新初始化。
+- 确保后续所有更新操作正常运行，无需用户手动干预。
+
+### 🇨🇳 全面国内源优化
+
+- **Scoop 自身更新源**：默认从 Gitee（`gitee.com/cmontage/scoop`）拉取更新，代替 GitHub。
+- **安装脚本源**：安装脚本（`install.ps1`）使用 Gitee + Cloudflare Proxy 双链路下载，兼顾有无 Git 环境。
+- **默认 Bucket 更新源**：所有已知 Bucket 均使用 Gitee 镜像地址。
+
+### 📋 改动汇总
+
+| 特性 | 官方 Scoop | 本版本 |
+|------|-----------|--------|
+| 国外资源下载 | 直连（可能超时） | 智能代理加速 |
+| 运行中进程处理 | 报错中止 | 交互式自动停止 + 提权重试 |
+| 默认 Bucket | `main`（GitHub） | `official`（Gitee 镜像） |
+| Bucket 源 | GitHub | Gitee 镜像 |
+| Scoop 更新源 | GitHub | Gitee |
+| Bucket Git 初始化 | 需手动处理 | 自动转换 |
+| 安装脚本 | GitHub 官方 | Gitee + CF Proxy 双链路 |
 
 ## 如何使用？
 
