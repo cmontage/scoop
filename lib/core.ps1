@@ -61,6 +61,33 @@ function Url_Proxy($url) {
         # Check for simple URL structure
         if ($url -notmatch "https?://.*?https?://") {
             $hostName = ([System.Uri]$url).Host
+            
+            # Whitelist Chinese domestic domains (direct connection priority)
+            $chinaWhitelist = @(
+                'douyin\.com', 'dy\.com', 'dycdn\.com',  # TikTok/抖音
+                'tencent\.com', 'qq\.com', 'qzone\.qq\.com',  # Tencent/腾讯
+                'alibaba\.com', 'aliyun\.com', 'taobao\.com', 'tmall\.com',  # Alibaba/阿里
+                'baidu\.com', 'baiducdn\.com',  # Baidu/百度
+                'netease\.com', '163\.com', '126\.com',  # NetEase/网易
+                'jd\.com', 'jingdong\.com',  # JD/京东
+                'bilibili\.com', 'bilicdn\.com',  # Bilibili/B站
+                'youku\.com', 'tudou\.com',  # Youku/优酷
+                'weibo\.com', 'sina\.com\.cn',  # Weibo/微博
+                'zhihu\.com',  # Zhihu/知乎
+                'gitcode\.net', 'gitee\.io',  # Chinese Git platforms
+                '\.cn$', '\.com\.cn$'  # All .cn domains
+            )
+            $isDomainWhitelisted = $false
+            foreach ($pattern in $chinaWhitelist) {
+                if ($hostName -match $pattern) {
+                    $isDomainWhitelisted = $true
+                    break
+                }
+            }
+            if ($isDomainWhitelisted) {
+                success "direct: $url (whitelisted domain: $hostName)"
+                return $url
+            }
             if ($hostName) {
                 # Check for IP literal
                 if ($hostName -match "^\d+\.\d+\.\d+\.\d+$") {
