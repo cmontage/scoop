@@ -145,22 +145,22 @@ function Url_Proxy($url) {
                         # Confirmed foreign IP, use proxy
                         return uProxy($url)
                     }
-                    # All APIs failed, default to direct (avoid false proxy)
-                    warn "geo-lookup failed for $ip, defaulting to direct: $url"
-                    return $url
+                    # All APIs failed, default to proxy
+                    warn "geo-lookup failed for $ip, using proxy: $url"
+                    return uProxy($url)
                 }
             }
-            # DNS resolution failed, default to direct (China-first assumption)
-            warn "dns resolution failed for $hostName, defaulting to direct: $url"
-            return $url
+            # DNS resolution failed, use proxy
+            warn "dns resolution failed for $hostName, using proxy: $url"
+            return uProxy($url)
         }
     } catch {
-        # Catch-all fallback to direct (safer than proxy)
-        warn "exception in Url_Proxy, defaulting to direct: $_"
-        return $url
+        # Catch-all fallback to proxy
+        warn "exception in Url_Proxy, using proxy: $_"
+        return uProxy($url)
     }
-    # Final fallback to direct
-    return $url
+    # Final fallback to proxy
+    return uProxy($url)
 }
 
 
