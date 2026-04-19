@@ -123,14 +123,16 @@ function Url_Proxy($url) {
                     return $url
                 }
             }
-            # Default to proxy for foreign/unknown
-            return uProxy($url)
+            # DNS resolution failed, default to direct (China-first assumption)
+            warn "dns resolution failed for $hostName, defaulting to direct: $url"
+            return $url
         }
     } catch {
-        # Catch-all fallback to proxy
-        return uProxy($url)
+        # Catch-all fallback to direct (safer than proxy)
+        warn "exception in Url_Proxy, defaulting to direct: $_"
+        return $url
     }
-    # Final fallback
+    # Final fallback to direct
     return $url
 }
 
