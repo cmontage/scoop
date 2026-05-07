@@ -77,6 +77,7 @@ function Url_Proxy($url) {
                 'feishucdn\.com', 'feishu\.cn',  # Feishu/飞书
                 'gitcode\.net', 'gitee\.io',  # Chinese Git platforms
                 'mozilla\.org', # Mozilla
+                'visualstudio\.com', # Visual Studio
                 '\.cn$', '\.com\.cn$', 'net\.cn'  # All .cn domains
             )
             $isDomainWhitelisted = $false
