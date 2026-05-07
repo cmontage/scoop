@@ -70,7 +70,7 @@ function Url_Proxy($url) {
                 'baidu\.com', 'baiducdn\.com',  # Baidu/百度
                 'netease\.com', '163\.com', '126\.com',  # NetEase/网易
                 'jd\.com', 'jingdong\.com',  # JD/京东
-                'bilibili\.com', 'bilicdn\.com',  # Bilibili/B站
+                'bilibili\.com', 'bilicdn\.com', 'hdslb\.com'  # Bilibili/B站
                 'youku\.com', 'tudou\.com',  # Youku/优酷
                 'weibo\.com', 'sina\.com\.cn',  # Weibo/微博
                 'zhihu\.com',  # Zhihu/知乎
