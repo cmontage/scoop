@@ -67,15 +67,17 @@ function Url_Proxy($url) {
                 'douyin\.com', 'dy\.com', 'dycdn\.com',  # TikTok/抖音
                 'tencent\.com', 'qq\.com', 'qzone\.qq\.com',  # Tencent/腾讯
                 'alibaba\.com', 'aliyun\.com', 'taobao\.com', 'tmall\.com',  # Alibaba/阿里
-                'baidu\.com', 'baiducdn\.com',  # Baidu/百度
-                'netease\.com', '163\.com', '126\.com',  # NetEase/网易
+                'baidu\.com', 'baiducdn\.com', 'baidupcs\.com', # Baidu/百度
+                'netease\.com', '163\.com', '126\.com', '126\.net', # NetEase/网易
                 'jd\.com', 'jingdong\.com',  # JD/京东
                 'bilibili\.com', 'bilicdn\.com', 'hdslb\.com'  # Bilibili/B站
                 'youku\.com', 'tudou\.com',  # Youku/优酷
                 'weibo\.com', 'sina\.com\.cn',  # Weibo/微博
                 'zhihu\.com',  # Zhihu/知乎
+                'feishucdn\.com', 'feishu\.cn',  # Feishu/飞书
                 'gitcode\.net', 'gitee\.io',  # Chinese Git platforms
-                '\.cn$', '\.com\.cn$'  # All .cn domains
+                'mozilla\.org', # Mozilla
+                '\.cn$', '\.com\.cn$', 'net\.cn'  # All .cn domains
             )
             $isDomainWhitelisted = $false
             foreach ($pattern in $chinaWhitelist) {
