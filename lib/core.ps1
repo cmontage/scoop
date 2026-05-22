@@ -100,7 +100,10 @@ function Url_Proxy($url) {
                     if (Get-Command "Resolve-DnsName" -ErrorAction SilentlyContinue) {
                         try {
                             $dnsResults = Resolve-DnsName -Name $hostName -Server "223.5.5.5" -ErrorAction SilentlyContinue
-                            $ip = ($dnsResults | Where-Object { $_.QueryType -in @('A', 'AAAA') -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
+                            $ip = ($dnsResults | Where-Object { $_.QueryType -eq 'A' -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
+                            if (!$ip) {
+                                $ip = ($dnsResults | Where-Object { $_.QueryType -eq 'AAAA' -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
+                            }
                         } catch {}
                     }
                     if (!$ip) {
