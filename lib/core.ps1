@@ -50,8 +50,26 @@ function Set-PESubsystem($filePath, $targetSubsystem) {
     return $true
 }
 
+function Test-SystemProxy {
+    try {
+        $proxy = [System.Net.WebRequest]::GetSystemWebProxy()
+        if ($null -eq $proxy) {
+            return $false
+        }
+        $testUri = [System.Uri]'http://example.com/'
+        $proxyUri = $proxy.GetProxy($testUri)
+        return ($null -ne $proxyUri -and $proxyUri -ne $testUri)
+    } catch {
+        return $false
+    }
+}
+
 function Url_Proxy($url) {
     try {
+        if (Test-SystemProxy) {
+            success "direct: $url (system proxy detected)"
+            return $url
+        }
         # Check self-hosted domain
         if ($url -match "1122330\.xyz") {
             success "direct: $url (whitelisted domain)"
