@@ -70,6 +70,10 @@ if ($null -eq $script:UrlGeoCache) {
 
 function Url_Proxy($url) {
     try {
+        if ($null -eq $script:UrlGeoCache) {
+            $script:UrlGeoCache = @{}
+        }
+
         if (Test-SystemProxy) {
             success "direct: $url (system proxy detected)"
             return $url
@@ -154,7 +158,7 @@ function Url_Proxy($url) {
                         try {
                             $ipInfoRaw = curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip"
                             $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                            if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data.country_code) {
+                            if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data -and $ipInfo.data.country_code) {
                                 $isChina = ($ipInfo.data.country_code -eq "cn")
                                 $script:UrlGeoCache[$ip] = $isChina
                             }
