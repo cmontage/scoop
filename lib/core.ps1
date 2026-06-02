@@ -52,12 +52,26 @@ function Set-PESubsystem($filePath, $targetSubsystem) {
 
 function Test-SystemProxy {
     try {
-        $proxy = [System.Net.WebRequest]::GetSystemWebProxy()
-        if ($null -eq $proxy) {
+        $scoopProxy = get_config PROXY
+        if ($scoopProxy -and $scoopProxy -ne 'none' -and $scoopProxy -ne 'default') {
+            return $true
+        }
+
+        $proxy = [System.Net.WebRequest]::DefaultWebProxy
+        if ($null -ne $proxy) {
+            $testUri = [System.Uri]'http://example.com/'
+            $proxyUri = $proxy.GetProxy($testUri)
+            if ($null -ne $proxyUri -and $proxyUri -ne $testUri) {
+                return $true
+            }
+        }
+
+        $sysProxy = [System.Net.WebRequest]::GetSystemWebProxy()
+        if ($null -eq $sysProxy) {
             return $false
         }
         $testUri = [System.Uri]'http://example.com/'
-        $proxyUri = $proxy.GetProxy($testUri)
+        $proxyUri = $sysProxy.GetProxy($testUri)
         return ($null -ne $proxyUri -and $proxyUri -ne $testUri)
     } catch {
         return $false
@@ -165,6 +179,21 @@ function Url_Proxy($url) {
                         } catch {}
                     }
 
+                    if ($null -eq $isChina) {
+                        # Secondary: PConline API
+                        try {
+                            $ipInfoRaw = curl.exe -s --connect-timeout 1 --max-time 2 "https://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true"
+                            $ipInfoRaw = $ipInfoRaw.Trim()
+                            if ($ipInfoRaw -match '^{') {
+                                $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                                if ($ipInfo -and $null -ne $ipInfo.proCode) {
+                                    $isChina = ($ipInfo.proCode -ne "999999")
+                                    $script:UrlGeoCache[$ip] = $isChina
+                                }
+                            }
+                        } catch {}
+                    }
+
                     if ($isChina -eq $true) {
                         success "direct: $url (China)"
                         return $url
@@ -174,7 +203,7 @@ function Url_Proxy($url) {
                         return uProxy($url)
                     }
                     # All APIs failed, default to proxy
-                    warn "geo-lookup failed for $ip, using proxy: $url"
+                    info "geo-lookup failed for $ip, using proxy: $url"
                     return uProxy($url)
                 }
             }
@@ -195,7 +224,7 @@ function Url_Proxy($url) {
 
 
 function uProxy($url) {
-    $Proxy = get_config URL_PROXY -default 'https://cfproxy.1122330.xyz'
+    $Proxy = get_config URL_PROXY -default 'https://ghproxy.net'
     success "proxy: $url"
     return "$Proxy/$(strip_fragment $url)"
 }
