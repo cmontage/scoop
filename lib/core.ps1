@@ -64,6 +64,10 @@ function Test-SystemProxy {
     }
 }
 
+if ($null -eq $script:UrlGeoCache) {
+    $script:UrlGeoCache = @{}
+}
+
 function Url_Proxy($url) {
     try {
         if (Test-SystemProxy) {
@@ -141,22 +145,18 @@ function Url_Proxy($url) {
                     # Determine physical location via geolocation APIs
                     $isChina = $null
 
-                    # Primary: PCOnline whois API
-                    try {
-                        $ipInfoRaw = curl.exe -s --connect-timeout 3 "http://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true"
-                        $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                        if ($ipInfo -and $ipInfo.proCode) {
-                            $isChina = ($ipInfo.proCode -ne "999999")
-                        }
-                    } catch {}
+                    if ($script:UrlGeoCache.ContainsKey($ip)) {
+                        $isChina = [bool]$script:UrlGeoCache[$ip]
+                    }
 
-                    # Fallback: ip-api.com (free, no key required, 45 req/min)
                     if ($null -eq $isChina) {
+                        # Primary: IP9 geolocation API
                         try {
-                            $ipApiRaw = curl.exe -s --connect-timeout 3 "http://ip-api.com/json/${ip}?fields=status,countryCode"
-                            $ipApi = $ipApiRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                            if ($ipApi -and $ipApi.status -eq 'success') {
-                                $isChina = ($ipApi.countryCode -eq 'CN')
+                            $ipInfoRaw = curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip"
+                            $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                            if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data.country_code) {
+                                $isChina = ($ipInfo.data.country_code -eq "cn")
+                                $script:UrlGeoCache[$ip] = $isChina
                             }
                         } catch {}
                     }
