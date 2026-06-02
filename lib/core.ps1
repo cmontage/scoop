@@ -205,7 +205,11 @@ function Url_Proxy($url) {
 
 
 function uProxy($url) {
-    $Proxy = get_config URL_PROXY -default 'https://cfproxy.1122330.xyz'
+    if ($url -match '^https?://(raw|gist|objects|release-assets)\.githubusercontent\.com' -or $url -match '^https?://github\.com') {
+        $Proxy = get_config URL_PROXY_GITHUB -default 'https://gh-proxy.org'
+    } else {
+        $Proxy = get_config URL_PROXY -default 'https://cfproxy.1122330.xyz'
+    }
     success "proxy: $url"
     return "$Proxy/$(strip_fragment $url)"
 }
