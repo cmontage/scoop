@@ -377,15 +377,16 @@ function Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $
 }
 
 # download with filesize and progress indicator
-function Invoke-Download ($url, $to, $cookies, $progress) {
-    $reqUrl = Url_Proxy(($url -split '#')[0])
+function Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoProxy) {
+    $downloadUrl = ($url -split '#')[0]
+    $reqUrl = if ($NoProxy) { $downloadUrl } else { Url_Proxy($downloadUrl) }
     $wreq = [Net.WebRequest]::Create($reqUrl)
     if ($wreq -is [Net.HttpWebRequest]) {
         $wreq.UserAgent = Get-UserAgent
-        if (-not ($url -match 'sourceforge\.net' -or $url -match 'portableapps\.com')) {
-            $wreq.Referer = strip_filename $url
+        if (-not ($downloadUrl -match 'sourceforge\.net' -or $downloadUrl -match 'portableapps\.com')) {
+            $wreq.Referer = strip_filename $downloadUrl
         }
-        if ($url -match 'api\.github\.com/repos') {
+        if ($downloadUrl -match 'api\.github\.com/repos') {
             $wreq.Accept = 'application/octet-stream'
             $wreq.Headers['Authorization'] = "Bearer $(Get-GitHubToken)"
             $wreq.Headers['X-GitHub-Api-Version'] = '2022-11-28'
@@ -394,7 +395,7 @@ function Invoke-Download ($url, $to, $cookies, $progress) {
             $wreq.Headers.Add('Cookie', (cookie_header $cookies))
         }
 
-        get_config PRIVATE_HOSTS | Where-Object { $_ -ne $null -and $url -match $_.match } | ForEach-Object {
+        get_config PRIVATE_HOSTS | Where-Object { $_ -ne $null -and $downloadUrl -match $_.match } | ForEach-Object {
             (ConvertFrom-StringData -StringData $_.Headers).GetEnumerator() | ForEach-Object {
                 $wreq.Headers[$_.Key] = $_.Value
             }
@@ -416,6 +417,11 @@ function Invoke-Download ($url, $to, $cookies, $progress) {
         # Only handle redirection codes
         $redirectRes = $exc.Response
         if ($handledCodes -notcontains $redirectRes.StatusCode) {
+            if (-not $NoProxy -and $reqUrl -ne $downloadUrl) {
+                warn "Proxy download failed for $downloadUrl, retrying direct."
+                Invoke-Download $downloadUrl $to $cookies $progress -NoProxy
+                return
+            }
             throw $exc
         }
 
