@@ -264,10 +264,16 @@ function load_cfg($file) {
 
 function get_config($name, $default) {
     $name = $name.ToLowerInvariant()
-    if ($null -eq $scoopConfig.$name -and $null -ne $default) {
+    if ($null -eq $scoopConfig) {
         return $default
     }
-    return $scoopConfig.$name
+
+    $configValue = $scoopConfig.PSObject.Properties[$name]
+    if ($null -eq $configValue -or $null -eq $configValue.Value) {
+        return $default
+    }
+
+    return $configValue.Value
 }
 
 function set_config {
