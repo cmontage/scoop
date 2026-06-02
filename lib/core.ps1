@@ -78,15 +78,8 @@ function Test-SystemProxy {
     }
 }
 
-if ($null -eq $script:UrlGeoCache) {
-    $script:UrlGeoCache = @{}
-}
-
 function Url_Proxy($url) {
     try {
-        if ($null -eq $script:UrlGeoCache) {
-            $script:UrlGeoCache = @{}
-        }
 
         if (Test-SystemProxy) {
             success "direct: $url (system proxy detected)"
@@ -163,33 +156,21 @@ function Url_Proxy($url) {
                     # Determine physical location via geolocation APIs
                     $isChina = $null
 
-                    if ($script:UrlGeoCache.ContainsKey($ip)) {
-                        $isChina = [bool]$script:UrlGeoCache[$ip]
-                    }
-
-                    if ($null -eq $isChina) {
-                        # Primary: IP9 geolocation API
-                        try {
-                            $ipInfoRaw = curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip"
-                            $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                            if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data -and $ipInfo.data.country_code) {
-                                $isChina = ($ipInfo.data.country_code -eq "cn")
-                                $script:UrlGeoCache[$ip] = $isChina
-                            }
-                        } catch {}
-                    }
+                    # Primary: IP9 geolocation API
+                    try {
+                        $ipInfoRaw = (curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip") -join ''
+                        $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
+                        if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data -and $ipInfo.data.country_code) {
+                            $isChina = ($ipInfo.data.country_code -eq "cn")
+                        }
+                    } catch {}
 
                     if ($null -eq $isChina) {
                         # Secondary: PConline API
                         try {
-                            $ipInfoRaw = curl.exe -s --connect-timeout 1 --max-time 2 "https://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true"
-                            $ipInfoRaw = $ipInfoRaw.Trim()
-                            if ($ipInfoRaw -match '^{') {
-                                $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                                if ($ipInfo -and $null -ne $ipInfo.proCode) {
-                                    $isChina = ($ipInfo.proCode -ne "999999")
-                                    $script:UrlGeoCache[$ip] = $isChina
-                                }
+                            $ipInfo = Invoke-RestMethod -Uri "https://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true" -Method Get -UseBasicParsing -ErrorAction SilentlyContinue
+                            if ($ipInfo -and $null -ne $ipInfo.proCode) {
+                                $isChina = ($ipInfo.proCode -ne "999999")
                             }
                         } catch {}
                     }
