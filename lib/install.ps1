@@ -1151,6 +1151,19 @@ function test_running_process($app, $global) {
             if ($answer -eq '' -or $answer -eq 'y' -or $answer -eq 'Y') {
                 $stop_failed = $false
                 try {
+                    if (is_admin) {
+                        $services = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { $_.PathName -like "*$processdir*" -and $_.State -eq 'Running' }
+                        if ($null -eq $services -and (Get-Command Get-WmiObject -ErrorAction SilentlyContinue)) {
+                            $services = Get-WmiObject Win32_Service -ErrorAction SilentlyContinue | Where-Object { $_.PathName -like "*$processdir*" -and $_.State -eq 'Running' }
+                        }
+                        if ($services) {
+                            $services | ForEach-Object {
+                                Write-Host "Stopping service: $($_.DisplayName) ($($_.Name))..."
+                                Stop-Service -Name $_.Name -Force -ErrorAction SilentlyContinue
+                            }
+                        }
+                    }
+
                     $running_processes | ForEach-Object {
                         Write-Host "Stopping process: $($_.ProcessName) (PID: $($_.Id))..."
                         Stop-Process -Id $_.Id -Force -ErrorAction Stop
@@ -1165,7 +1178,9 @@ function test_running_process($app, $global) {
                     $pids = @($running_processes | Where-Object { $_ -and $_.Id } | Select-Object -ExpandProperty Id -Unique)
                     if ($pids.Count -gt 0) {
                         $host_exe = (Get-Process -Id $PID).Path
-                        $stop_script = "$ErrorActionPreference = 'Stop'; Stop-Process -Id $($pids -join ',') -Force"
+                        $safe_dir = $processdir -replace "'", "''"
+                        $svc_script = "`$services = Get-CimInstance Win32_Service -ErrorAction SilentlyContinue | Where-Object { `$_.PathName -like '*$safe_dir*' -and `$_.State -eq 'Running' }; if (`$null -eq `$services -and (Get-Command Get-WmiObject -ErrorAction SilentlyContinue)) { `$services = Get-WmiObject Win32_Service -ErrorAction SilentlyContinue | Where-Object { `$_.PathName -like '*$safe_dir*' -and `$_.State -eq 'Running' } }; if (`$services) { `$services | ForEach-Object { Stop-Service -Name `$_.Name -Force -ErrorAction SilentlyContinue } };"
+                        $stop_script = "$ErrorActionPreference = 'Stop'; $svc_script Stop-Process -Id $($pids -join ',') -Force"
                         $elevated_ok = Invoke-ExternalCommand -FilePath $host_exe -ArgumentList @('-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', $stop_script) -Activity 'Retrying process stop as administrator...' -RunAs
                         if (!$elevated_ok) {
                             warn 'Stopping processes as administrator failed.'
