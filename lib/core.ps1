@@ -80,19 +80,14 @@ function Test-SystemProxy {
 
 function Url_Proxy($url) {
     try {
-
-        if (Test-SystemProxy) {
-            success "direct: $url (system proxy detected)"
-            return $url
-        }
         # Check self-hosted domain
         if ($url -match "1122330\.xyz") {
             success "direct: $url (whitelisted domain)"
             return $url
         }
 
-        # Check for simple URL structure
-        if ($url -notmatch "https?://.*?https?://") {
+        $isSimpleUrl = ($url -notmatch "https?://.*?https?://")
+        if ($isSimpleUrl) {
             $hostName = ([System.Uri]$url).Host
             
             # Whitelist Chinese domestic domains (direct connection priority)
@@ -125,6 +120,14 @@ function Url_Proxy($url) {
                 success "direct: $url (whitelisted domain: $hostName)"
                 return $url
             }
+        }
+
+        if (Test-SystemProxy) {
+            success "direct: $url (system proxy detected)"
+            return $url
+        }
+
+        if ($isSimpleUrl) {
             if ($hostName) {
                 # Check for IP literal
                 if ($hostName -match "^\d+\.\d+\.\d+\.\d+$") {
