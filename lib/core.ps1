@@ -98,6 +98,7 @@ function Url_Proxy($url) {
             # Whitelist Chinese domestic domains (direct connection priority)
             $chinaWhitelist = @(
                 'douyin\.com', 'dy\.com', 'dycdn\.com',  # TikTok/抖音
+                'quarkcdn\.com', 'quark\.cn',  # Quark/夸克
                 'tencent\.com', 'qq\.com', 'qzone\.qq\.com',  # Tencent/腾讯
                 'alibaba\.com', 'aliyun\.com', 'taobao\.com', 'tmall\.com',  # Alibaba/阿里
                 'baidu\.com', 'baiducdn\.com', 'baidupcs\.com', # Baidu/百度
