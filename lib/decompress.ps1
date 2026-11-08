@@ -24,7 +24,7 @@ function Invoke-Extraction {
         $extractFn = $null
         switch -regex ($Name[$i]) {
             '\.zip$' {
-                if ((Test-HelperInstalled -Helper 7zip) -or ((get_config 7ZIPEXTRACT_USE_EXTERNAL) -and (Test-CommandAvailable 7z))) {
+                if ((Test-HelperInstalled -Helper 7zip) -or ((get_config USE_EXTERNAL_7ZIP) -and (Test-CommandAvailable 7z))) {
                     $extractFn = 'Expand-7zipArchive'
                 } else {
                     $extractFn = 'Expand-ZipArchive'
@@ -52,11 +52,9 @@ function Invoke-Extraction {
                 DestinationPath = Join-Path $Path $extractTo[$extracted]
                 ExtractDir      = $extractDir[$extracted]
             }
-            Write-Host 'Extracting ' -NoNewline
-            Write-Host $(url_remote_filename $uri[$i]) -ForegroundColor Cyan -NoNewline
-            Write-Host ' ... ' -NoNewline
+            Write-Host "Extracting $([char]0x1b)[36m$(url_remote_filename $uri[$i])$([char]0x1b)[0m... " -NoNewline
             & $extractFn @fnArgs -Removal
-            Write-Host 'done.' -ForegroundColor Green
+            Write-Host 'Done.' -ForegroundColor Green
             $extracted++
         }
     }
@@ -123,18 +121,21 @@ function Expand-7zipArchive {
     }
     if (!$IsTar -and $ExtractDir) {
         movedir "$DestinationPath\$ExtractDir" $DestinationPath | Out-Null
-        # Remove temporary directory
-        Remove-Item "$DestinationPath\$($ExtractDir -replace '[\\/].*')" -Recurse -Force -ErrorAction Ignore
+        # Remove temporary directory if it is empty
+        $ExtractDirTopPath = [string] "$DestinationPath\$($ExtractDir -replace '[\\/].*')"
+        if ((Get-ChildItem -Path $ExtractDirTopPath -Force -ErrorAction Ignore).Count -eq 0) {
+            Remove-Item -Path $ExtractDirTopPath -Recurse -Force -ErrorAction Ignore
+        }
     }
     if (Test-Path $LogPath) {
         Remove-Item $LogPath -Force
     }
     if ($Removal) {
         if (($Path -replace '.*\.([^\.]*)$', '$1') -eq '001') {
-            # Remove splited 7-zip archive parts
+            # Remove split 7-zip archive parts
             Get-ChildItem "$($Path -replace '\.[^\.]*$', '').???" | Remove-Item -Force
         } elseif (($Path -replace '.*\.part(\d+)\.rar$', '$1')[-1] -eq '1') {
-            # Remove splitted RAR archive parts
+            # Remove split RAR archive parts
             Get-ChildItem "$($Path -replace '\.part(\d+)\.rar$', '').part*.rar" | Remove-Item -Force
         } else {
             # Remove original archive file

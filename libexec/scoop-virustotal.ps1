@@ -29,13 +29,14 @@
 #   -p, --passthru            Return reports as objects
 
 . "$PSScriptRoot\..\lib\getopt.ps1"
+. "$PSScriptRoot\..\lib\versions.ps1" # 'Select-CurrentVersion'
 . "$PSScriptRoot\..\lib\manifest.ps1" # 'Get-Manifest'
 . "$PSScriptRoot\..\lib\json.ps1" # 'json_path'
-. "$PSScriptRoot\..\lib\install.ps1" # 'hash_for_url'
+. "$PSScriptRoot\..\lib\download.ps1" # 'hash_for_url'
 . "$PSScriptRoot\..\lib\depends.ps1" # 'Get-Dependency'
 
 $opt, $apps, $err = getopt $args 'asnup' @('all', 'scan', 'no-depends', 'no-update-scoop', 'passthru')
-if ($err) { "scoop virustotal: $err"; exit 1 }
+if ($err) { error "scoop virustotal: $err"; exit 1 }
 $all = $apps -eq '*' -or $opt.a -or $opt.all
 if (!$apps -and !$all) { my_usage; exit 1 }
 $architecture = Get-DefaultArchitecture
@@ -84,11 +85,6 @@ Function ConvertTo-VirusTotalUrlId ($url) {
     $url_id = $url_id -replace '/', '_'
     $url_id = $url_id -replace '=', ''
     $url_id
-}
-
-Function Get-RemoteFileSize ($url) {
-    $response = Invoke-WebRequest -Uri $url -Method HEAD -UseBasicParsing
-    $response.Headers.'Content-Length' | ForEach-Object { [System.Convert]::ToInt32($_) }
 }
 
 Function Get-VirusTotalResultByHash ($hash, $url, $app) {
@@ -210,7 +206,7 @@ Function Get-VirusTotalResultByUrl ($url, $app) {
 # - $url: where file to check can be downloaded
 # - $app: Name of the application (used for reporting)
 # - $do_scan: [boolean flag] whether to actually submit to VirusTotal
-#             This is a parameter instead of conditionnally calling
+#             This is a parameter instead of conditionally calling
 #             the function to consolidate the warning message
 # - $retrying: [boolean] Optional, for internal use to retry
 #              submitting the file after a delay if the rate limit is

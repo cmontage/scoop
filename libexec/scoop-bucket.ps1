@@ -30,14 +30,14 @@ $usage_rm = 'usage: scoop bucket rm <name>'
 switch ($cmd) {
     'add' {
         if (!$name) {
-            '<name> missing'
+            error '<name> missing'
             $usage_add
             exit 1
         }
         if (!$repo) {
             $repo = known_bucket_repo $name
             if (!$repo) {
-                "Unknown bucket '$name'. Try specifying <repo>."
+                error "Unknown bucket '$name'. Try specifying <repo>."
                 $usage_add
                 exit 1
             }
@@ -47,7 +47,7 @@ switch ($cmd) {
     }
     'rm' {
         if (!$name) {
-            '<name> missing'
+            error '<name> missing'
             $usage_rm
             exit 1
         }
@@ -57,7 +57,7 @@ switch ($cmd) {
     'list' {
         $buckets = list_buckets
         if (!$buckets.Length) {
-            warn "No bucket found. Please run 'scoop bucket add <bucket name>' to add bucket."
+            warn "No bucket found. Please run 'scoop bucket add main' to add the default 'main' bucket."
             exit 2
         } else {
             $buckets
@@ -69,7 +69,7 @@ switch ($cmd) {
         exit 0
     }
     default {
-        "scoop bucket: cmd '$cmd' not supported"
+        error "scoop bucket: cmd '$cmd' not supported"
         my_usage
         exit 1
     }

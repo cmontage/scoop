@@ -10,14 +10,9 @@ param($query)
 
 . "$PSScriptRoot\..\lib\manifest.ps1" # 'manifest'
 . "$PSScriptRoot\..\lib\versions.ps1" # 'Get-LatestVersion'
+. "$PSScriptRoot\..\lib\download.ps1"
 
 $list = [System.Collections.Generic.List[PSCustomObject]]::new()
-
-$githubtoken = Get-GitHubToken
-$authheader = @{}
-if ($githubtoken) {
-    $authheader = @{'Authorization' = "token $githubtoken" }
-}
 
 function bin_match($manifest, $query) {
     if (!$manifest.bin) { return $false }
@@ -62,15 +57,23 @@ function search_bucket($bucket, $query) {
 
     $apps | ForEach-Object {
         $filepath = $_.FullName
+        $name = $_.BaseName
+
+        $content = try {
+            [System.IO.File]::ReadAllText($filepath)
+        } catch {
+            debug "Failed to read manifest file: $filepath (error: $_)"
+            return
+        }
+
+        if ($name -notmatch $query -and $content -notmatch $query) { return }
 
         $json = try {
-            [System.Text.Json.JsonDocument]::Parse([System.IO.File]::ReadAllText($filepath))
+            [System.Text.Json.JsonDocument]::Parse($content)
         } catch {
             debug "Failed to parse manifest file: $filepath (error: $_)"
             return
         }
-
-        $name = $_.BaseName
 
         if ($name -match $query) {
             $list.Add([PSCustomObject]@{
@@ -98,8 +101,24 @@ function search_bucket_legacy($bucket, $query) {
     $apps = Get-ChildItem (Find-BucketDirectory $bucket) -Filter '*.json' -Recurse
 
     $apps | ForEach-Object {
-        $manifest = [System.IO.File]::ReadAllText($_.FullName) | ConvertFrom-Json -ErrorAction Continue
+        $filepath = $_.FullName
         $name = $_.BaseName
+
+        $content = try {
+            [System.IO.File]::ReadAllText($filepath)
+        } catch {
+            debug "Failed to read manifest file: $filepath (error: $_)"
+            return
+        }
+
+        if ($name -notmatch $query -and $content -notmatch $query) { return }
+
+        $manifest = try {
+            ConvertFrom-Json $content -ErrorAction Stop
+        } catch {
+            debug "Failed to parse manifest file: $filepath (error: $_)"
+            return
+        }
 
         if ($name -match $query) {
             $list.Add([PSCustomObject]@{
@@ -120,23 +139,6 @@ function search_bucket_legacy($bucket, $query) {
             }
         }
     }
-}
-
-function download_json($url) {
-    $ProgressPreference = 'SilentlyContinue'
-    $result = Invoke-WebRequest $url -UseBasicParsing -Headers $authheader | Select-Object -ExpandProperty content | ConvertFrom-Json
-    $ProgressPreference = 'Continue'
-    $result
-}
-
-function github_ratelimit_reached {
-    $api_link = 'https://api.github.com/rate_limit'
-    $ret = (download_json $api_link).rate.remaining -eq 0
-    if ($ret) {
-        Write-Host "GitHub API rate limit reached.
-Please try again later or configure your API token using 'scoop config gh_token <your token>'."
-    }
-    $ret
 }
 
 function search_remote($bucket, $query) {
@@ -162,8 +164,7 @@ function search_remotes($query) {
     } | Where-Object { $_.results }
 
     if ($results.count -gt 0) {
-        Write-Host "Results from other known buckets...
-(add them using 'scoop bucket add <bucket name>')"
+        Write-Host "Results from other known buckets...`n(add them using 'scoop bucket add <bucket name>')"
     }
 
     $remote_list = @()
@@ -181,7 +182,7 @@ function search_remotes($query) {
 
 if (get_config USE_SQLITE_CACHE) {
     . "$PSScriptRoot\..\lib\database.ps1"
-    Select-ScoopDBItem $query -From @('name', 'binary', 'shortcut') |
+    Find-ScoopDBItem $query -From @('name', 'binary', 'shortcut') |
         Select-Object -Property name, version, bucket, binary |
         ForEach-Object {
             $list.Add([PSCustomObject]@{

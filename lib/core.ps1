@@ -13,13 +13,31 @@ function Get-PESubsystem($filePath) {
         $fileStream.Seek($fileHeaderOffset + 0x5C, [System.IO.SeekOrigin]::Begin) | Out-Null
 
         return $binaryReader.ReadInt16()
-    }
-    catch {
+    } catch {
         return -1
+    } finally {
+        if ($null -ne $binaryReader) { $binaryReader.Close() }
+        if ($null -ne $fileStream) { $fileStream.Close() }
     }
-    finally {
-        $binaryReader.Close()
-        $fileStream.Close()
+}
+
+function Get-PEMachine($filePath) {
+    try {
+        $fileStream = [System.IO.FileStream]::new($filePath, [System.IO.FileMode]::Open, [System.IO.FileAccess]::Read)
+        $binaryReader = [System.IO.BinaryReader]::new($fileStream)
+
+        $fileStream.Seek(0x3C, [System.IO.SeekOrigin]::Begin) | Out-Null
+        $peOffset = $binaryReader.ReadInt32()
+
+        # Machine field is at PE signature (4 bytes) + offset 0 of COFF header
+        $fileStream.Seek($peOffset + 4, [System.IO.SeekOrigin]::Begin) | Out-Null
+
+        return $binaryReader.ReadUInt16()
+    } catch {
+        return 0
+    } finally {
+        if ($null -ne $binaryReader) { $binaryReader.Close() }
+        if ($null -ne $fileStream) { $fileStream.Close() }
     }
 }
 
@@ -39,179 +57,14 @@ function Set-PESubsystem($filePath, $targetSubsystem) {
         $fileStream.Seek($fileHeaderOffset + 0x5C, [System.IO.SeekOrigin]::Begin) | Out-Null
 
         $binaryWriter.Write([System.Int16] $targetSubsystem)
-    }
-    catch {
+    } catch {
         return $false
-    }
-    finally {
-        $binaryReader.Close()
-        $fileStream.Close()
+    } finally {
+        if ($null -ne $binaryWriter) { $binaryWriter.Close() }
+        if ($null -ne $binaryReader) { $binaryReader.Close() }
+        if ($null -ne $fileStream) { $fileStream.Close() }
     }
     return $true
-}
-
-function Test-SystemProxy {
-    try {
-        $scoopProxy = get_config PROXY
-        if ($scoopProxy -and $scoopProxy -ne 'none' -and $scoopProxy -ne 'default') {
-            return $true
-        }
-
-        $proxy = [System.Net.WebRequest]::DefaultWebProxy
-        if ($null -ne $proxy) {
-            $testUri = [System.Uri]'http://example.com/'
-            $proxyUri = $proxy.GetProxy($testUri)
-            if ($null -ne $proxyUri -and $proxyUri -ne $testUri) {
-                return $true
-            }
-        }
-
-        $sysProxy = [System.Net.WebRequest]::GetSystemWebProxy()
-        if ($null -eq $sysProxy) {
-            return $false
-        }
-        $testUri = [System.Uri]'http://example.com/'
-        $proxyUri = $sysProxy.GetProxy($testUri)
-        return ($null -ne $proxyUri -and $proxyUri -ne $testUri)
-    } catch {
-        return $false
-    }
-}
-
-function Url_Proxy($url) {
-    try {
-        # Check self-hosted domain
-        if ($url -match "1122330\.xyz") {
-            success "direct: $url (whitelisted domain)"
-            return $url
-        }
-
-        $isSimpleUrl = ($url -notmatch "https?://.*?https?://")
-        if ($isSimpleUrl) {
-            $hostName = ([System.Uri]$url).Host
-            
-            # Whitelist Chinese domestic domains (direct connection priority)
-            $chinaWhitelist = @(
-                'douyin\.com', 'dy\.com', 'dycdn\.com',  # TikTok/抖音
-                'quarkcdn\.com', 'quark\.cn',  # Quark/夸克
-                'tencent\.com', 'qq\.com', 'qzone\.qq\.com',  # Tencent/腾讯
-                'alibaba\.com', 'aliyun\.com', 'taobao\.com', 'tmall\.com',  # Alibaba/阿里
-                'baidu\.com', 'baiducdn\.com', 'baidupcs\.com', # Baidu/百度
-                'netease\.com', '163\.com', '126\.com', '126\.net', # NetEase/网易
-                'jd\.com', 'jingdong\.com',  # JD/京东
-                'bilibili\.com', 'bilicdn\.com', 'hdslb\.com'  # Bilibili/B站
-                'youku\.com', 'tudou\.com',  # Youku/优酷
-                'weibo\.com', 'sina\.com\.cn',  # Weibo/微博
-                'zhihu\.com',  # Zhihu/知乎
-                'feishucdn\.com', 'feishu\.cn',  # Feishu/飞书
-                'gitcode\.net', 'gitee\.io',  # Chinese Git platforms
-                'mozilla\.org', # Mozilla
-                'visualstudio\.com', # Visual Studio
-                '\.cn$', '\.com\.cn$', 'net\.cn'  # All .cn domains
-            )
-            $isDomainWhitelisted = $false
-            foreach ($pattern in $chinaWhitelist) {
-                if ($hostName -match $pattern) {
-                    $isDomainWhitelisted = $true
-                    break
-                }
-            }
-            if ($isDomainWhitelisted) {
-                success "direct: $url (whitelisted domain: $hostName)"
-                return $url
-            }
-        }
-
-        if (Test-SystemProxy) {
-            success "direct: $url (system proxy detected)"
-            return $url
-        }
-
-        if ($isSimpleUrl) {
-            if ($hostName) {
-                # Check for IP literal
-                if ($hostName -match "^\d+\.\d+\.\d+\.\d+$") {
-                    $ip = $hostName
-                } else {
-                    $ip = $null
-                    if (Get-Command "Resolve-DnsName" -ErrorAction SilentlyContinue) {
-                        try {
-                            $dnsResults = Resolve-DnsName -Name $hostName -Server "223.5.5.5" -ErrorAction SilentlyContinue
-                            $ip = ($dnsResults | Where-Object { $_.QueryType -eq 'A' -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
-                            if (!$ip) {
-                                $ip = ($dnsResults | Where-Object { $_.QueryType -eq 'AAAA' -and $_.IPAddress } | Select-Object -ExpandProperty IPAddress -First 1)
-                            }
-                        } catch {}
-                    }
-                    if (!$ip) {
-                        try {
-                            $ip = [System.Net.Dns]::GetHostAddresses($hostName) | Where-Object { $_.AddressFamily -eq 'InterNetwork' } | Select-Object -First 1 -ExpandProperty IPAddressToString
-                        } catch {}
-                    }
-                }
-
-                if ($ip) {
-                    # Filter internal or fake-IP ranges
-                    if ($ip -match "^(127\.|10\.|172\.(1[6-9]|2[0-9]|3[01])\.|192\.168\.|100\.64\.|198\.1[89]\.)") {
-                        success "direct: $url (internal/fake: $ip)"
-                        return $url
-                    }
-
-                    # Determine physical location via geolocation APIs
-                    $isChina = $null
-
-                    # Primary: IP9 geolocation API
-                    try {
-                        $ipInfoRaw = (curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip") -join ''
-                        $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
-                        if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data -and $ipInfo.data.country_code) {
-                            $isChina = ($ipInfo.data.country_code -eq "cn")
-                        }
-                    } catch {}
-
-                    if ($null -eq $isChina) {
-                        # Secondary: PConline API
-                        try {
-                            $ipInfo = Invoke-RestMethod -Uri "https://whois.pconline.com.cn/ipJson.jsp?ip=$ip&json=true" -Method Get -UseBasicParsing -ErrorAction SilentlyContinue
-                            if ($ipInfo -and $null -ne $ipInfo.proCode) {
-                                $isChina = ($ipInfo.proCode -ne "999999")
-                            }
-                        } catch {}
-                    }
-
-                    if ($isChina -eq $true) {
-                        success "direct: $url (China)"
-                        return $url
-                    }
-                    if ($isChina -eq $false) {
-                        # Confirmed foreign IP, use proxy
-                        return uProxy($url)
-                    }
-                    # All APIs failed, default to proxy
-                    info "geo-lookup failed for $ip, using proxy: $url"
-                    return uProxy($url)
-                }
-            }
-            # DNS resolution failed, use proxy
-            warn "dns resolution failed for $hostName, using proxy: $url"
-            return uProxy($url)
-        }
-    } catch {
-        # Catch-all fallback to proxy
-        warn "exception in Url_Proxy, using proxy: $_"
-        return uProxy($url)
-    }
-    # Final fallback to proxy
-    return uProxy($url)
-}
-
-
-
-
-function uProxy($url) {
-    $Proxy = get_config URL_PROXY -default 'https://cfproxy.1122330.xyz'
-    success "proxy: $url"
-    return "$Proxy/$(strip_fragment $url)"
 }
 
 function Optimize-SecurityProtocol {
@@ -229,19 +82,6 @@ function Optimize-SecurityProtocol {
         # https://datatracker.ietf.org/doc/html/rfc8996
         [System.Net.ServicePointManager]::SecurityProtocol = 3072
     }
-}
-
-function Get-Encoding($wc) {
-    if ($null -ne $wc.ResponseHeaders -and $wc.ResponseHeaders['Content-Type'] -match 'charset=([^;]*)') {
-        return [System.Text.Encoding]::GetEncoding($Matches[1])
-    }
-    else {
-        return [System.Text.Encoding]::GetEncoding('utf-8')
-    }
-}
-
-function Get-UserAgent() {
-    return "Scoop/1.0 (+https://gitee.com/scoop-installer/scoop/) PowerShell/$($PSVersionTable.PSVersion.Major).$($PSVersionTable.PSVersion.Minor) (Windows NT $([System.Environment]::OSVersion.Version.Major).$([System.Environment]::OSVersion.Version.Minor); $(if(${env:ProgramFiles(Arm)}){'ARM64; '}elseif($env:PROCESSOR_ARCHITECTURE -eq 'AMD64'){'Win64; x64; '})$(if($env:PROCESSOR_ARCHITEW6432 -in 'AMD64','ARM64'){'WOW64; '})$PSEdition)"
 }
 
 function Show-DeprecatedWarning {
@@ -270,28 +110,21 @@ function load_cfg($file) {
         # Ref: https://docs.microsoft.com/en-us/dotnet/api/system.io.file.readalllines?view=netframework-4.5
         $content = [System.IO.File]::ReadAllLines($file)
         return ($content | ConvertFrom-Json -ErrorAction Stop)
-    }
-    catch {
-        Write-Host "ERROR loading $file`: $($_.exception.message)"
+    } catch {
+        error "loading $file`: $($_.exception.message)"
     }
 }
 
 function get_config($name, $default) {
     $name = $name.ToLowerInvariant()
-    if ($null -eq $scoopConfig) {
+    if ($null -eq $scoopConfig.$name -and $null -ne $default) {
         return $default
     }
-
-    $configValue = $scoopConfig.PSObject.Properties[$name]
-    if ($null -eq $configValue -or $null -eq $configValue.Value) {
-        return $default
-    }
-
-    return $configValue.Value
+    return $scoopConfig.$name
 }
 
 function set_config {
-    Param (
+    param (
         [ValidateNotNullOrEmpty()]
         $name,
         $value
@@ -313,8 +146,7 @@ function set_config {
 
     if ($null -eq $scoopConfig.$name) {
         $scoopConfig | Add-Member -MemberType NoteProperty -Name $name -Value $value
-    }
-    else {
+    } else {
         $scoopConfig.$name = $value
     }
 
@@ -343,8 +175,7 @@ function Complete-ConfigChange {
         $oldValue = get_config USE_ISOLATED_PATH
         if ($Value -eq $oldValue) {
             return
-        }
-        else {
+        } else {
             $currPathEnvVar = $scoopPathEnvVar
         }
         . "$PSScriptRoot\..\lib\system.ps1"
@@ -365,12 +196,10 @@ function Complete-ConfigChange {
                     Set-EnvVar -Name $currPathEnvVar -Global -Quiet
                 }
             }
-        }
-        else {
+        } else {
             $newPathEnvVar = if ($Value -eq $true) {
                 'SCOOP_PATH'
-            }
-            else {
+            } else {
                 $Value.ToUpperInvariant()
             }
             info "Turn on Scoop isolated path ('$newPathEnvVar')... This may take a while, please wait."
@@ -398,45 +227,10 @@ function Complete-ConfigChange {
     }
 
     if ($Name -eq 'use_sqlite_cache' -and $Value -eq $true) {
-        if ((Get-DefaultArchitecture) -eq 'arm64') {
-            abort 'SQLite cache is not supported on ARM64 platform.'
-        }
         . "$PSScriptRoot\..\lib\database.ps1"
         . "$PSScriptRoot\..\lib\manifest.ps1"
         info 'Initializing SQLite cache in progress... This may take a while, please wait.'
         Set-ScoopDB
-    }
-}
-
-function setup_proxy() {
-    # note: '@' and ':' in password must be escaped, e.g. 'p@ssword' -> p\@ssword'
-    $proxy = get_config PROXY
-    if (!$proxy) {
-        return
-    }
-    try {
-        $credentials, $address = $proxy -split '(?<!\\)@'
-        if (!$address) {
-            $address, $credentials = $credentials, $null # no credentials supplied
-        }
-
-        if ($address -eq 'none') {
-            [net.webrequest]::defaultwebproxy = $null
-        }
-        elseif ($address -ne 'default') {
-            [net.webrequest]::defaultwebproxy = new-object net.webproxy "http://$address"
-        }
-
-        if ($credentials -eq 'currentuser') {
-            [net.webrequest]::defaultwebproxy.credentials = [net.credentialcache]::defaultcredentials
-        }
-        elseif ($credentials) {
-            $username, $password = $credentials -split '(?<!\\):' | ForEach-Object { $_ -replace '\\([@:])', '$1' }
-            [net.webrequest]::defaultwebproxy.credentials = new-object net.networkcredential($username, $password)
-        }
-    }
-    catch {
-        warn "Failed to use proxy '$proxy': $($_.exception.message)"
     }
 }
 
@@ -466,7 +260,7 @@ function Invoke-Git {
         return & $git @ArgumentList
     }
 
-    if ($ArgumentList -Match '\b(clone|checkout|pull|fetch|ls-remote)\b') {
+    if ($ArgumentList -match '\b(clone|checkout|pull|fetch|ls-remote)\b') {
         $j = Start-Job -ScriptBlock {
             # convert proxy setting for git
             $proxy = $using:proxy
@@ -486,21 +280,21 @@ function Invoke-Git {
 
 function Invoke-GitLog {
     [CmdletBinding()]
-    Param (
+    param (
         [Parameter(Mandatory, ValueFromPipeline)]
         [String]$Path,
         [Parameter(Mandatory, ValueFromPipeline)]
         [String]$CommitHash,
         [String]$Name = ''
     )
-    Process {
+    process {
         if ($Name) {
             if ($Name.Length -gt 12) {
                 $Name = "$($Name.Substring(0, 10)).."
             }
             $Name = "%Cgreen$($Name.PadRight(12, ' ').Substring(0, 12))%Creset "
         }
-        Invoke-Git -Path $Path -ArgumentList @('--no-pager', 'log', '--color', '--no-decorate', "--grep='^(chore)'", '--invert-grep', '--abbrev=12', "--format=tformat: * %C(yellow)%h%Creset %<|(72,trunc)%s $Name%C(cyan)%cr%Creset", "$CommitHash..HEAD")
+        Invoke-Git -Path $Path -ArgumentList @('--no-pager', 'log', '--color', '--no-decorate', '--grep=^(chore)', '--invert-grep', '--abbrev=12', "--format=tformat: * %C(yellow)%h%Creset %<|(72,trunc)%s $Name%C(cyan)%cr%Creset", "$CommitHash..HEAD")
     }
 }
 
@@ -514,10 +308,10 @@ function is_admin {
 }
 
 # messages
-function abort($msg, [int] $exit_code = 1) { write-host $msg -f red; exit $exit_code }
-function error($msg) { write-host "ERROR $msg" -f darkred }
-function warn($msg) { write-host "WARN  $msg" -f darkyellow }
-function info($msg) { write-host "INFO  $msg" -f darkgray }
+function abort($msg, [int] $exit_code = 1) { Write-Host $msg -f red; exit $exit_code }
+function error($msg) { Write-Host "ERROR $msg" -f darkred }
+function warn($msg) { Write-Host "WARN  $msg" -f darkyellow }
+function info($msg) { Write-Host "INFO  $msg" -f darkgray }
 function debug($obj) {
     if ((get_config DEBUG $false) -ine 'true' -and $env:SCOOP_DEBUG -ine 'true') {
         return
@@ -538,17 +332,16 @@ function debug($obj) {
         Write-Host "$prefix $param ($($obj.GetType()))" -f DarkCyan -NoNewline
         Write-Host " -> $($MyInvocation.PSCommandPath):$($MyInvocation.ScriptLineNumber):$($MyInvocation.OffsetInLine)" -f DarkGray
         $msg | Where-Object { ![String]::IsNullOrWhiteSpace($_) } |
-        Select-Object -Skip 2 | # Skip headers
-        ForEach-Object {
-            Write-Host "$prefix $param.$($_)" -f DarkCyan
-        }
-    }
-    else {
+            Select-Object -Skip 2 | # Skip headers
+            ForEach-Object {
+                Write-Host "$prefix $param.$($_)" -f DarkCyan
+            }
+    } else {
         Write-Host "$prefix $param = $($msg.Trim())" -f DarkCyan -NoNewline
         Write-Host " -> $($MyInvocation.PSCommandPath):$($MyInvocation.ScriptLineNumber):$($MyInvocation.OffsetInLine)" -f DarkGray
     }
 }
-function success($msg) { write-host $msg -f darkgreen }
+function success($msg) { Write-Host $msg -f darkgreen }
 
 function filesize($length) {
     $gb = [math]::pow(2, 30)
@@ -557,14 +350,11 @@ function filesize($length) {
 
     if ($length -gt $gb) {
         "{0:n1} GB" -f ($length / $gb)
-    }
-    elseif ($length -gt $mb) {
+    } elseif ($length -gt $mb) {
         "{0:n1} MB" -f ($length / $mb)
-    }
-    elseif ($length -gt $kb) {
+    } elseif ($length -gt $kb) {
         "{0:n1} KB" -f ($length / $kb)
-    }
-    else {
+    } else {
         if ($null -eq $length) {
             $length = 0
         }
@@ -581,10 +371,12 @@ function appdir($app, $global) { "$(appsdir $global)\$app" }
 function versiondir($app, $version, $global) { "$(appdir $app $global)\$version" }
 
 function currentdir($app, $global) {
-    if (get_config NO_JUNCTION) {
+    if ((get_config NO_JUNCTION) -and ($app -ne 'scoop')) {
+        if (!(Get-Command 'Select-CurrentVersion' -ErrorAction SilentlyContinue)) {
+            . "$PSScriptRoot\versions.ps1"
+        }
         $version = Select-CurrentVersion -App $app -Global:$global
-    }
-    else {
+    } else {
         $version = 'current'
     }
     "$(appdir $app $global)\$version"
@@ -670,14 +462,14 @@ function Get-AppFilePath {
     return $null
 }
 
-Function Test-CommandAvailable {
+function Test-CommandAvailable {
     param (
         [String]$Name
     )
-    Return [Boolean](Get-Command $Name -ErrorAction Ignore)
+    return [Boolean](Get-Command $Name -ErrorAction Ignore)
 }
 
-Function Test-GitAvailable {
+function Test-GitAvailable {
     return [Boolean](Get-HelperPath -Helper Git)
 }
 
@@ -699,8 +491,7 @@ function Get-HelperPath {
                 $internalgit = (Get-AppFilePath 'git' 'mingw64\bin\git.exe'), (Get-AppFilePath 'git' 'mingw32\bin\git.exe') | Where-Object { $_ -ne $null }
                 if ($internalgit) {
                     $HelperPath = $internalgit
-                }
-                else {
+                } else {
                     $HelperPath = (Get-Command git -CommandType Application -TotalCount 1 -ErrorAction Ignore).Source
                 }
             }
@@ -713,9 +504,9 @@ function Get-HelperPath {
                 }
             }
             'Dark' {
-                $HelperPath = Get-AppFilePath 'wixtoolset' 'wix.exe'
+                $HelperPath = Get-AppFilePath 'dark' 'dark.exe'
                 if ([String]::IsNullOrEmpty($HelperPath)) {
-                    $HelperPath = Get-AppFilePath 'dark' 'dark.exe'
+                    $HelperPath = Get-AppFilePath 'wixtoolset' 'wix.exe'
                 }
             }
             'Aria2' { $HelperPath = Get-AppFilePath 'aria2' 'aria2c.exe' }
@@ -742,24 +533,19 @@ function Get-CommandPath {
     process {
         try {
             $comm = Get-Command $Command -ErrorAction Stop
-        }
-        catch {
+        } catch {
             return $null
         }
         $commandPath = if ($comm.Path -like "$userShims\scoop-*.ps1") {
             # Scoop aliases
             $comm.Source
-        }
-        elseif ($comm.Path -like "$userShims*" -or $comm.Path -like "$globalShims*") {
+        } elseif ($comm.Path -like "$userShims*" -or $comm.Path -like "$globalShims*") {
             Get-ShimTarget ($comm.Path -replace '\.exe$', '.shim')
-        }
-        elseif ($comm.CommandType -eq 'Application') {
+        } elseif ($comm.CommandType -eq 'Application') {
             $comm.Source
-        }
-        elseif ($comm.CommandType -eq 'Alias') {
+        } elseif ($comm.CommandType -eq 'Alias') {
             Get-CommandPath $comm.ResolvedCommandName
-        }
-        else {
+        } else {
             $null
         }
         return $commandPath
@@ -778,10 +564,6 @@ function Test-HelperInstalled {
     return ![String]::IsNullOrWhiteSpace((Get-HelperPath -Helper $Helper))
 }
 
-function Test-Aria2Enabled {
-    return (Test-HelperInstalled -Helper Aria2) -and (get_config 'aria2-enabled' $true)
-}
-
 function app_status($app, $global) {
     $status = @{}
     $status.installed = installed $app $global
@@ -793,6 +575,11 @@ function app_status($app, $global) {
     $status.failed = failed $app $global
     $status.hold = ($install_info.hold -eq $true)
 
+    $deprecated_dir = (Find-BucketDirectory -Name $install_info.bucket -Root) + "\deprecated"
+    if (Test-Path $deprecated_dir) {
+        $status.deprecated = (Get-ChildItem $deprecated_dir -Filter "$(sanitary_path $app).json" -Recurse).FullName
+    }
+
     $manifest = manifest $app $install_info.bucket $install_info.url
     $status.removed = (!$manifest)
     if ($manifest.version) {
@@ -803,8 +590,7 @@ function app_status($app, $global) {
     if ($status.version -and $status.latest_version) {
         if (get_config FORCE_UPDATE $false) {
             $status.outdated = ((Compare-Version -ReferenceVersion $status.version -DifferenceVersion $status.latest_version) -ne 0)
-        }
-        else {
+        } else {
             $status.outdated = ((Compare-Version -ReferenceVersion $status.version -DifferenceVersion $status.latest_version) -gt 0)
         }
     }
@@ -813,8 +599,7 @@ function app_status($app, $global) {
     $deps = @($manifest.depends) | Where-Object {
         if ($null -eq $_) {
             return $null
-        }
-        else {
+        } else {
             $app, $bucket, $null = parse_app $_
             return !(installed $app)
         }
@@ -822,41 +607,18 @@ function app_status($app, $global) {
     if ($deps) {
         $status.missing_deps += , $deps
     }
-
     return $status
 }
 
 function appname_from_url($url) {
-    (split-path $url -leaf) -replace '.json$', ''
+    (Split-Path $url -Leaf) -replace '.json$', ''
 }
 
 # paths
-function fname($path) { split-path $path -leaf }
+function fname($path) { Split-Path $path -Leaf }
 function strip_ext($fname) { $fname -replace '\.[^\.]*$', '' }
 function strip_filename($path) { $path -replace [regex]::escape((fname $path)) }
-function strip_fragment($url) { $url -replace (new-object uri $url).fragment }
-
-function url_filename($url) {
-    (split-path $url -leaf).split('?') | Select-Object -First 1
-}
-# Unlike url_filename which can be tricked by appending a
-# URL fragment (e.g. #/dl.7z, useful for coercing a local filename),
-# this function extracts the original filename from the URL.
-function url_remote_filename($url) {
-    $uri = (New-Object URI $url)
-    $basename = Split-Path $uri.PathAndQuery -Leaf
-    If ($basename -match ".*[?=]+([\w._-]+)") {
-        $basename = $matches[1]
-    }
-    If (($basename -notlike "*.*") -or ($basename -match "^[v.\d]+$")) {
-        $basename = Split-Path $uri.AbsolutePath -Leaf
-    }
-    If (($basename -notlike "*.*") -and ($uri.Fragment -ne "")) {
-        $basename = $uri.Fragment.Trim('/', '#')
-    }
-    return $basename
-}
-
+function strip_fragment($url) { $url -replace (New-Object uri $url).fragment }
 function ensure($dir) {
     if (!(Test-Path -Path $dir)) {
         New-Item -Path $dir -ItemType Directory | Out-Null
@@ -868,12 +630,12 @@ function Get-AbsolutePath {
     .SYNOPSIS
         Get absolute path
     .DESCRIPTION
-        Get absolute path, even if not existed
+        Get absolute path, even if it does not exist
     .PARAMETER Path
         Path to manipulate
     .OUTPUTS
         System.String
-            Absolute path, may or maynot existed
+            Absolute path, may or may not exist
     #>
     [CmdletBinding()]
     [OutputType([string])]
@@ -883,7 +645,14 @@ function Get-AbsolutePath {
         $Path
     )
     process {
-        return $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+        $resolvedPath = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($Path)
+        if ($resolvedPath -match '[\\/]$') {
+            $root = [System.IO.Path]::GetPathRoot($resolvedPath)
+            if ($resolvedPath -ine $root) {
+                $resolvedPath = $resolvedPath.TrimEnd([char[]]@('\', '/'))
+            }
+        }
+        return $resolvedPath
     }
 }
 
@@ -898,13 +667,40 @@ function friendly_path($path) {
     }
     if ($h -eq '\') {
         return $path
-    }
-    else {
+    } else {
         return $path -replace ([Regex]::Escape($h)), '~\'
     }
 }
+
+# Returns the relative path from $from to $to, or $to unchanged when
+# $to is not under $from.
+function Get-RelativePath($from, $to) {
+    if (-not (is_in_dir $from $to)) {
+        return $to
+    }
+
+    if ($PSVersionTable.PSVersion.Major -ge 6) {
+        try {
+            return [System.IO.Path]::GetRelativePath($from, $to)
+        } catch {}
+    }
+
+    return ($to.Substring($from.Length).TrimStart('\', '/') -replace '/', '\')
+}
 function is_local($path) {
     ($path -notmatch '^https?://') -and (Test-Path $path)
+}
+
+# True if $check equals $dir or sits under $dir.
+function is_in_dir($dir, $check) {
+    $dir = Get-AbsolutePath $dir
+    $check = Get-AbsolutePath $check
+
+    if ($check -ieq $dir) { return $true }
+    if (-not ($dir.EndsWith('\') -or $dir.EndsWith('/'))) {
+        $dir += [System.IO.Path]::DirectorySeparatorChar
+    }
+    $check.StartsWith($dir, [System.StringComparison]::OrdinalIgnoreCase)
 }
 
 # operations
@@ -953,8 +749,7 @@ function Invoke-ExternalCommand {
     if ($LogPath) {
         if ($FilePath -match '^msiexec(.exe)?$') {
             $ArgumentList += "/lwe `"$LogPath`""
-        }
-        else {
+        } else {
             $redirectToLogFile = $true
             $Process.StartInfo.RedirectStandardOutput = $true
             $Process.StartInfo.RedirectStandardError = $true
@@ -988,8 +783,7 @@ function Invoke-ExternalCommand {
             # ref-1: https://docs.microsoft.com/en-us/dotnet/api/system.diagnostics.processstartinfo.argumentlist?view=net-6.0
             # ref-2: https://docs.microsoft.com/en-us/powershell/scripting/whats-new/differences-from-windows-powershell?view=powershell-7.2#net-framework-vs-net-core
             $ArgumentList.ForEach({ $Process.StartInfo.ArgumentList.Add($_) })
-        }
-        else {
+        } else {
             # Escape arguments manually in lower versions
             $escapedArgs = switch -regex ($ArgumentList) {
                 # Quote paths starting with a drive letter
@@ -1005,10 +799,9 @@ function Invoke-ExternalCommand {
     }
     try {
         [void]$Process.Start()
-    }
-    catch {
+    } catch {
         if ($Activity) {
-            Write-Host "error." -ForegroundColor DarkRed
+            Write-Host "Error." -ForegroundColor DarkRed
         }
         error $_.Exception.Message
         return $false
@@ -1027,21 +820,20 @@ function Invoke-ExternalCommand {
     if ($Process.ExitCode -ne 0) {
         if ($ContinueExitCodes -and ($ContinueExitCodes.ContainsKey($Process.ExitCode))) {
             if ($Activity) {
-                Write-Host "done." -ForegroundColor DarkYellow
+                Write-Host "Done." -ForegroundColor DarkYellow
             }
             warn $ContinueExitCodes[$Process.ExitCode]
             return $true
-        }
-        else {
+        } else {
             if ($Activity) {
-                Write-Host "error." -ForegroundColor DarkRed
+                Write-Host "Error." -ForegroundColor DarkRed
             }
             error "Exit code was $($Process.ExitCode)!"
             return $false
         }
     }
     if ($Activity) {
-        Write-Host "done." -ForegroundColor Green
+        Write-Host "Done." -ForegroundColor Green
     }
     return $true
 }
@@ -1059,8 +851,7 @@ function isFileLocked([string]$path) {
             $stream.Close()
         }
         return $false
-    }
-    catch {
+    } catch {
         # file is locked by a process.
         return $true
     }
@@ -1101,11 +892,9 @@ function movedir($from, $to) {
 function get_app_name($path) {
     if ((Test-Path (appsdir $false)) -and ($path -match "$([Regex]::Escape($(Convert-Path (appsdir $false))))[/\\]([^/\\]+)")) {
         $appName = $Matches[1].ToLower()
-    }
-    elseif ((Test-Path (appsdir $true)) -and ($path -match "$([Regex]::Escape($(Convert-Path (appsdir $true))))[/\\]([^/\\]+)")) {
+    } elseif ((Test-Path (appsdir $true)) -and ($path -match "$([Regex]::Escape($(Convert-Path (appsdir $true))))[/\\]([^/\\]+)")) {
         $appName = $Matches[1].ToLower()
-    }
-    else {
+    } else {
         $appName = ''
     }
     return $appName
@@ -1123,14 +912,18 @@ function Get-ShimTarget($ShimPath) {
     if ($ShimPath) {
         $shimTarget = if ($ShimPath.EndsWith('.shim')) {
             (Get-Content -Path $ShimPath | Select-Object -First 1).Replace('path = ', '').Replace('"', '')
-        }
-        else {
+        } else {
             ((Select-String -Path $ShimPath -Pattern '^(?:@rem|#)\s*(.*)$').Matches.Groups | Select-Object -Index 1).Value
         }
         if (!$shimTarget) {
             $shimTarget = ((Select-String -Path $ShimPath -Pattern '[''"]([^@&]*?)[''"]' -AllMatches).Matches.Groups | Select-Object -Last 1).Value
         }
-        $shimTarget | Convert-Path -ErrorAction SilentlyContinue
+        $shimTargetConverted = $shimTarget | Convert-Path -ErrorAction SilentlyContinue
+        if (!$shimTargetConverted -and $shimTarget -and $shimTarget.Contains('\Sysnative\')) {
+            $shimTarget.Replace('\Sysnative\', '\System32\') | Convert-Path -ErrorAction SilentlyContinue
+        } else {
+            return $shimTargetConverted
+        }
     }
 }
 
@@ -1142,8 +935,7 @@ function warn_on_overwrite($shim, $path) {
     $path_app = get_app_name $path
     if ($shim_app -eq $path_app) {
         return
-    }
-    else {
+    } else {
         if (Test-Path -Path "$shim.$path_app" -PathType Leaf) {
             Remove-Item -Path "$shim.$path_app" -Force -ErrorAction SilentlyContinue
         }
@@ -1172,7 +964,27 @@ function shim($path, $global, $name, $arg) {
         # for programs with no awareness of any shell
         warn_on_overwrite "$shim.shim" $path
         Copy-Item (get_shim_path) "$shim.exe" -Force
-        Write-Output "path = `"$resolved_path`"" | Out-UTF8File "$shim.shim"
+
+        $rewrote_path = $resolved_path
+
+        # If the shim exe is x86 on a x64 OS, rewrite paths so the shim resolves correctly:
+        #   System32 -> Sysnative  (x64 resolve x64 program in System32, and it should be Sysnative in x86 program)
+        #   SysWOW64 -> System32   (x64 resolve x86 program in SysWOW64, and it should be System32 in x86 program)
+        $shim_machine = Get-PEMachine "$shim.exe"
+        # 0x014c is IMAGE_FILE_MACHINE_I386
+        # https://learn.microsoft.com/en-us/windows/win32/sysinfo/image-file-machine-constants
+        if ($shim_machine -eq 0x014c -and [System.Environment]::Is64BitOperatingSystem) {
+            $sysdir = [System.IO.Path]::Combine($env:SystemRoot, 'System32')
+            $sysnative = [System.IO.Path]::Combine($env:SystemRoot, 'Sysnative')
+            $syswow = [System.IO.Path]::Combine($env:SystemRoot, 'SysWOW64')
+            if ($rewrote_path -like "$sysdir\*") {
+                $rewrote_path = $rewrote_path -replace [regex]::Escape($sysdir), $sysnative
+            } elseif ($rewrote_path -like "$syswow\*") {
+                $rewrote_path = $rewrote_path -replace [regex]::Escape($syswow), $sysdir
+            }
+        }
+
+        Write-Output "path = `"$rewrote_path`"" | Out-UTF8File "$shim.shim"
         if ($arg) {
             Write-Output "args = $arg" | Out-UTF8File "$shim.shim" -Append
         }
@@ -1183,8 +995,7 @@ function shim($path, $global, $name, $arg) {
             Write-Output "Making $shim.exe a GUI binary."
             Set-PESubsystem "$shim.exe" $target_subsystem | Out-Null
         }
-    }
-    elseif ($path -match '\.(bat|cmd)$') {
+    } elseif ($path -match '\.(bat|cmd)$') {
         # shim .bat, .cmd so they can be used by programs with no awareness of PSH
         warn_on_overwrite "$shim.cmd" $path
         @(
@@ -1198,8 +1009,7 @@ function shim($path, $global, $name, $arg) {
             "# $resolved_path",
             "MSYS2_ARG_CONV_EXCL=/C cmd.exe /C `"$resolved_path`" $arg `"$@`""
         ) -join "`n" | Out-UTF8File $shim -NoNewLine
-    }
-    elseif ($path -match '\.ps1$') {
+    } elseif ($path -match '\.ps1$') {
         # if $path points to another drive resolve-path prepends .\ which could break shims
         warn_on_overwrite "$shim.ps1" $path
         $ps1text = if ($relative_path -match '^(\.\\)?\w:.*$') {
@@ -1209,8 +1019,7 @@ function shim($path, $global, $name, $arg) {
                 "if (`$MyInvocation.ExpectingInput) { `$input | & `$path $arg @args } else { & `$path $arg @args }",
                 "exit `$LASTEXITCODE"
             )
-        }
-        else {
+        } else {
             @(
                 "# $resolved_path",
                 "`$path = Join-Path `$PSScriptRoot `"$relative_path`"",
@@ -1243,8 +1052,7 @@ function shim($path, $global, $name, $arg) {
             "    powershell.exe -noprofile -ex unrestricted -file `"$resolved_path`" $arg `"$@`"",
             "fi"
         ) -join "`n" | Out-UTF8File $shim -NoNewLine
-    }
-    elseif ($path -match '\.jar$') {
+    } elseif ($path -match '\.jar$') {
         warn_on_overwrite "$shim.cmd" $path
         @(
             "@rem $resolved_path",
@@ -1265,8 +1073,7 @@ function shim($path, $global, $name, $arg) {
             'fi',
             "java.exe -jar `"$resolved_path`" $arg `"$@`""
         ) -join "`n" | Out-UTF8File $shim -NoNewLine
-    }
-    elseif ($path -match '\.py$') {
+    } elseif ($path -match '\.py$') {
         warn_on_overwrite "$shim.cmd" $path
         @(
             "@rem $resolved_path",
@@ -1279,14 +1086,20 @@ function shim($path, $global, $name, $arg) {
             "# $resolved_path",
             "python.exe `"$resolved_path`" $arg `"$@`""
         ) -join "`n" | Out-UTF8File $shim -NoNewLine
-    }
-    else {
+    } else {
         warn_on_overwrite "$shim.cmd" $path
+        $quoted_arg = if ($arg.Count -gt 0) { $arg | ForEach-Object { "`"$_`"" } }
         @(
             "@rem $resolved_path",
-            "@bash `"`$(wslpath -u '$resolved_path')`" $arg %* 2>nul",
-            '@if %errorlevel% neq 0 (',
-            "  @bash `"`$(cygpath -u '$resolved_path')`" $arg %* 2>nul",
+            '@echo off',
+            'bash -c "command -v wslpath >/dev/null"',
+            'if %errorlevel% equ 0 (',
+            "  bash `"`$(wslpath -u '$resolved_path')`" $quoted_arg %*",
+            ') else (',
+            "  set args=$quoted_arg %*",
+            '  setlocal enabledelayedexpansion',
+            '  if not "!args!"=="" set args=!args:"=""!',
+            "  bash -c `"`$(cygpath -u '$resolved_path') !args!`"",
             ')'
         ) -join "`r`n" | Out-UTF8File "$shim.cmd"
 
@@ -1320,21 +1133,17 @@ function Get-DefaultArchitecture {
     $arch = get_config DEFAULT_ARCHITECTURE
     $system = if (${env:ProgramFiles(Arm)}) {
         'arm64'
-    }
-    elseif ([System.Environment]::Is64BitOperatingSystem) {
+    } elseif ([System.Environment]::Is64BitOperatingSystem) {
         '64bit'
-    }
-    else {
+    } else {
         '32bit'
     }
     if ($null -eq $arch) {
         $arch = $system
-    }
-    else {
+    } else {
         try {
             $arch = Format-ArchitectureString $arch
-        }
-        catch {
+        } catch {
             warn 'Invalid default architecture configured. Determining default system architecture'
             $arch = $system
         }
@@ -1371,24 +1180,19 @@ function Confirm-InstallationStatus {
         if ($Global) {
             if (Test-Path (appdir $App $true)) {
                 $Installed += , @($App, $true)
-            }
-            elseif (Test-Path (appdir $App $false)) {
+            } elseif (Test-Path (appdir $App $false)) {
                 error "'$App' isn't installed globally, but it may be installed locally."
                 warn "Try again without the --global (or -g) flag instead."
-            }
-            else {
+            } else {
                 error "'$App' isn't installed."
             }
-        }
-        else {
+        } else {
             if (Test-Path (appdir $App $false)) {
                 $Installed += , @($App, $false)
-            }
-            elseif (Test-Path (appdir $App $true)) {
+            } elseif (Test-Path (appdir $App $true)) {
                 error "'$App' isn't installed locally, but it may be installed globally."
                 warn "Try again with the --global (or -g) flag instead."
-            }
-            else {
+            } else {
                 error "'$App' isn't installed."
             }
         }
@@ -1400,7 +1204,7 @@ function Confirm-InstallationStatus {
 }
 
 function wraptext($text, $width) {
-    if (!$width) { $width = $host.ui.rawui.buffersize.width };
+    if (!$width) { $width = $host.ui.rawui.buffersize.width }
     $width -= 1 # be conservative: doesn't seem to print the last char
 
     $text -split '\r?\n' | ForEach-Object {
@@ -1429,8 +1233,7 @@ function applist($apps, $global) {
 function parse_app([string]$app) {
     if ($app -match '^(?:(?<bucket>[a-zA-Z0-9-_.]+)/)?(?<app>.*\.json|[a-zA-Z0-9-_.]+)(?:@(?<version>.*))?$') {
         return $Matches['app'], $Matches['bucket'], $Matches['version']
-    }
-    else {
+    } else {
         return $app, $null, $null
     }
 }
@@ -1450,8 +1253,7 @@ function is_scoop_outdated() {
     try {
         $expireHour = (New-TimeSpan (get_config LAST_UPDATE) $now).TotalHours
         return ($expireHour -ge 3)
-    }
-    catch {
+    } catch {
         # If not System.DateTime
         set_config LAST_UPDATE ($now.ToString('o')) | Out-Null
         return $true
@@ -1469,12 +1271,10 @@ function Test-ScoopCoreOnHold() {
             warn "Skipping self-update of Scoop Core until $($parsed_date.ToLocalTime())..."
             warn "If you want to update Scoop Core immediately, use 'scoop unhold scoop; scoop update'."
             return $true
-        }
-        else {
+        } else {
             warn 'Self-update of Scoop Core is enabled again!'
         }
-    }
-    else {
+    } else {
         error "'hold_update_until' has been set in the wrong format and was removed."
         error 'If you want to disable self-update of Scoop Core for a moment,'
         error "use 'scoop hold scoop' or 'scoop config hold_update_until <YYYY-MM-DD>/<YYYY/MM/DD>'."
@@ -1488,12 +1288,12 @@ function substitute($entity, [Hashtable] $params, [Bool]$regexEscape = $false) {
         $newentity = $entity.PSObject.Copy()
         switch ($entity.GetType().Name) {
             'String' {
-                $params.GetEnumerator() | ForEach-Object {
-                    if ($regexEscape -eq $false -or $null -eq $_.Value) {
-                        $newentity = $newentity.Replace($_.Name, $_.Value)
-                    }
-                    else {
-                        $newentity = $newentity.Replace($_.Name, [Regex]::Escape($_.Value))
+                $params.Keys | Sort-Object Length -Descending | ForEach-Object {
+                    $value = $params[$_]
+                    if ($regexEscape -eq $false -or $null -eq $value) {
+                        $newentity = $newentity.Replace($_, $value)
+                    } else {
+                        $newentity = $newentity.Replace($_, [Regex]::Escape($value))
                     }
                 }
             }
@@ -1506,109 +1306,6 @@ function substitute($entity, [Hashtable] $params, [Bool]$regexEscape = $false) {
         }
     }
     return $newentity
-}
-
-function format_hash([String] $hash) {
-    $hash = $hash.toLower()
-    switch ($hash.Length) {
-        32 { $hash = "md5:$hash" } # md5
-        40 { $hash = "sha1:$hash" } # sha1
-        64 { $hash = $hash } # sha256
-        128 { $hash = "sha512:$hash" } # sha512
-        default { $hash = $null }
-    }
-    return $hash
-}
-
-function format_hash_aria2([String] $hash) {
-    $hash = $hash -split ':' | Select-Object -Last 1
-    switch ($hash.Length) {
-        32 { $hash = "md5=$hash" } # md5
-        40 { $hash = "sha-1=$hash" } # sha1
-        64 { $hash = "sha-256=$hash" } # sha256
-        128 { $hash = "sha-512=$hash" } # sha512
-        default { $hash = $null }
-    }
-    return $hash
-}
-
-function get_hash([String] $multihash) {
-    $type, $hash = $multihash -split ':'
-    if (!$hash) {
-        # no type specified, assume sha256
-        $type, $hash = 'sha256', $multihash
-    }
-
-    if (@('md5', 'sha1', 'sha256', 'sha512') -notcontains $type) {
-        return $null, "Hash type '$type' isn't supported."
-    }
-
-    return $type, $hash.ToLower()
-}
-
-function Get-GitHubToken {
-    return $env:SCOOP_GH_TOKEN, (get_config GH_TOKEN) | Where-Object -Property Length -Value 0 -GT | Select-Object -First 1
-}
-
-function handle_special_urls($url) {
-    # FossHub.com
-    if ($url -match "^(?:.*fosshub.com\/)(?<name>.*)(?:\/|\?dwl=)(?<filename>.*)$") {
-        $Body = @{
-            projectUri      = $Matches.name;
-            fileName        = $Matches.filename;
-            source          = 'CF';
-            isLatestVersion = $true
-        }
-        if ((Invoke-RestMethod -Uri $url) -match '"p":"(?<pid>[a-f0-9]{24}).*?"r":"(?<rid>[a-f0-9]{24})') {
-            $Body.Add("projectId", $Matches.pid)
-            $Body.Add("releaseId", $Matches.rid)
-        }
-        $url = Invoke-RestMethod -Method Post -Uri "https://api.fosshub.com/download/" -ContentType "application/json" -Body (ConvertTo-Json $Body -Compress)
-        if ($null -eq $url.error) {
-            $url = $url.data.url
-        }
-    }
-
-    # Sourceforge.net
-    if ($url -match "(?:downloads\.)?sourceforge.net\/projects?\/(?<project>[^\/]+)\/(?:files\/)?(?<file>.*?)(?:$|\/download|\?)") {
-        # Reshapes the URL to avoid redirections
-        $url = "https://downloads.sourceforge.net/project/$($matches['project'])/$($matches['file'])"
-    }
-
-    # Github.com
-    if ($url -match 'github.com/(?<owner>[^/]+)/(?<repo>[^/]+)/releases/download/(?<tag>[^/]+)/(?<file>[^/#]+)(?<filename>.*)' -and ($token = Get-GitHubToken)) {
-        $headers = @{ "Authorization" = "token $token" }
-        $privateUrl = "https://api.github.com/repos/$($Matches.owner)/$($Matches.repo)"
-        $assetUrl = "https://api.github.com/repos/$($Matches.owner)/$($Matches.repo)/releases/tags/$($Matches.tag)"
-
-        if ((Invoke-RestMethod -Uri (Url_Proxy $privateUrl) -Headers $headers).Private) {
-            $url = ((Invoke-RestMethod -Uri (Url_Proxy $assetUrl) -Headers $headers).Assets | Where-Object -Property Name -EQ -Value $Matches.file).Url, $Matches.filename -join ''
-        }
-    }
-
-    return $url
-}
-
-function get_magic_bytes($file) {
-    if (!(Test-Path $file)) {
-        return ''
-    }
-
-    if ((Get-Command Get-Content).parameters.ContainsKey('AsByteStream')) {
-        # PowerShell Core (6.0+) '-Encoding byte' is replaced by '-AsByteStream'
-        return Get-Content $file -AsByteStream -TotalCount 8
-    }
-    else {
-        return Get-Content $file -Encoding byte -TotalCount 8
-    }
-}
-
-function get_magic_bytes_pretty($file, $glue = ' ') {
-    if (!(Test-Path $file)) {
-        return ''
-    }
-
-    return (get_magic_bytes $file | ForEach-Object { $_.ToString('x2') }) -join $glue
 }
 
 function Out-UTF8File {
@@ -1624,15 +1321,13 @@ function Out-UTF8File {
     process {
         if ($Append) {
             [System.IO.File]::AppendAllText($FilePath, $InputObject)
-        }
-        else {
+        } else {
             if (!$NoNewLine) {
                 # Ref: https://stackoverflow.com/questions/5596982
                 # Performance Note: `WriteAllLines` throttles memory usage while
                 # `WriteAllText` needs to keep the complete string in memory.
                 [System.IO.File]::WriteAllLines($FilePath, $InputObject)
-            }
-            else {
+            } else {
                 # However `WriteAllText` does not add ending newline.
                 [System.IO.File]::WriteAllText($FilePath, $InputObject)
             }
@@ -1699,5 +1394,7 @@ $scoopPathEnvVar = switch (get_config USE_ISOLATED_PATH) {
 # OS information
 $WindowsBuild = [System.Environment]::OSVersion.Version.Build
 
-# Setup proxy globally
-setup_proxy
+# ==========================================
+# Scoop Custom Extension Hook (cmontage)
+# ==========================================
+if (Test-Path "$PSScriptRoot\..\custom\init.ps1") { . "$PSScriptRoot\..\custom\init.ps1" }
