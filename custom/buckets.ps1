@@ -13,6 +13,14 @@ function Custom-Find-BucketDirectory {
     if (($null -eq $Name) -or ($Name -eq '')) {
         $Name = 'official'
     }
+
+    # 当 Sync-Bucket 执行远古 'main' bucket 转 git 检测时，如果本地没有安装 main 且安装了 official，
+    # 将其重定向至 official，让 Test-Path .git 判定通过，彻底消除 "Converting 'main' bucket to git repo" 的报错
+    $callers = (Get-PSCallStack).FunctionName
+    if ($Name -eq 'main' -and $callers -contains 'Sync-Bucket' -and (Get-LocalBucket) -notcontains 'main') {
+        $Name = 'official'
+    }
+
     $bucket = "$bucketsdir\$Name"
 
     if ((Test-Path "$bucket\bucket") -and !$Root) {
