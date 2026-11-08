@@ -4,18 +4,10 @@
 
 
 <p align="center">
-    <a href="https://github.com/cmontage/scoop">
-        <img src="https://img.shields.io/github/languages/code-size/cmontage/scoop.svg" alt="Code Size" />
-    </a>
-    <a href="https://github.com/cmontage/scoop">
-        <img src="https://img.shields.io/github/repo-size/cmontage/scoop.svg" alt="Repository size" />
-    </a>
-    <a href="./LICENSE">
-        <img src="https://img.shields.io/badge/license-UNLICENSE%20or%20MIT-green" alt="License" />
-    </a>
-    <a href="https://github.com/cmontage/scoop/releases">
-        <img src="https://img.shields.io/badge/base-v0.6.0-blue" alt="Base Version" />
-    </a>
+    <a href="https://github.com/cmontage/scoop"><img src="https://img.shields.io/badge/code%20size-536%20KB-blue.svg" alt="Code Size" /></a>
+    <a href="https://github.com/cmontage/scoop"><img src="https://img.shields.io/badge/repo%20size-14%20MB-blue.svg" alt="Repository size" /></a>
+    <a href="./LICENSE"><img src="https://img.shields.io/badge/license-UNLICENSE%20or%20MIT-green.svg" alt="License" /></a>
+    <a href="https://github.com/cmontage/scoop/releases"><img src="https://img.shields.io/badge/base-v0.6.0-blue.svg" alt="Base Version" /></a>
 </p>
 
 该 Scoop 基于 [官方 Scoop (v0.6.0+)](https://github.com/ScoopInstaller/Scoop) 修改，针对**中国大陆网络环境**与日常使用痛点进行了深度重构与优化。内置真实浏览器指纹引擎、智能代理分流、提权守护，并采用**完全解耦的架构隔离设计**，确保未来能无缝同步官方上游最新特性。
