@@ -14,11 +14,31 @@ function Custom-Find-BucketDirectory {
         $Name = 'official'
     }
 
-    # 当 Sync-Bucket 执行远古 'main' bucket 转 git 检测时，如果本地没有安装 main 且安装了 official，
-    # 将其重定向至 official，让 Test-Path .git 判定通过，彻底消除 "Converting 'main' bucket to git repo" 的报错
-    $callers = (Get-PSCallStack).FunctionName
-    if ($Name -eq 'main' -and $callers -contains 'Sync-Bucket' -and (Get-LocalBucket) -notcontains 'main') {
-        $Name = 'official'
+    # 动态获取 buckets 根目录
+    $bucketsdir = if (Get-Variable -Name bucketsdir -Scope Script -ErrorAction SilentlyContinue) {
+        $script:bucketsdir
+    } elseif (Get-Variable -Name bucketsdir -Scope Global -ErrorAction SilentlyContinue) {
+        $global:bucketsdir
+    } elseif ($scoopdir) {
+        "$scoopdir\buckets"
+    } else {
+        "$env:USERPROFILE\scoop\buckets"
+    }
+
+    # 当请求 'main' 仓库时：
+    # 如果本地并未安装 'main'，则优先重定向至本地已安装的 'official'（或其它已安装的有效 git bucket）
+    # 彻底杜绝 Sync-Bucket 执行远古 'Converting main bucket to git repo' 导致的 rm_bucket 报错退出
+    if ($Name -eq 'main' -and !(Test-Path "$bucketsdir\main")) {
+        if (Test-Path "$bucketsdir\official") {
+            $Name = 'official'
+        } else {
+            $firstValidBucket = Get-ChildItem -Path $bucketsdir -Directory -ErrorAction SilentlyContinue |
+                Where-Object { Test-Path "$($_.FullName)\.git" } |
+                Select-Object -First 1 -ExpandProperty Name
+            if ($firstValidBucket) {
+                $Name = $firstValidBucket
+            }
+        }
     }
 
     $bucket = "$bucketsdir\$Name"
@@ -30,8 +50,9 @@ function Custom-Find-BucketDirectory {
     return $bucket
 }
 
-function check_main_bucket {
-    if ((Get-LocalBucket) -contains 'official' -or (Get-LocalBucket) -contains 'main') {
+function Custom-Check-Main-Bucket {
+    $buckets = Get-LocalBucket
+    if ($buckets -contains 'official' -or $buckets -contains 'main') {
         return $true
     }
     warn "Neither 'official' nor 'main' bucket is added."

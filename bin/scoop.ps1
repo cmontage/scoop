@@ -6,6 +6,11 @@ Set-StrictMode -Off
 . "$PSScriptRoot\..\lib\commands.ps1"
 . "$PSScriptRoot\..\lib\help.ps1"
 
+# ==========================================
+# Scoop Custom Extension Hook (cmontage)
+# ==========================================
+if (Test-Path "$PSScriptRoot\..\custom\init.ps1") { . "$PSScriptRoot\..\custom\init.ps1" }
+
 $subCommand = $Args[0]
 
 # for aliases where there's a local function, re-alias so the function takes precedence
@@ -51,8 +56,3 @@ switch ($subCommand) {
         exit 1
     }
 }
-
-# ==========================================
-# Scoop Custom Extension Hook (cmontage)
-# ==========================================
-if (Test-Path "$PSScriptRoot\..\custom\init.ps1") { . "$PSScriptRoot\..\custom\init.ps1" }
