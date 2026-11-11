@@ -4,67 +4,38 @@
     底层采用内置 curl-impersonate (真实 Chrome BoringSSL 指纹) 与系统 curl.exe 高速引擎
 #>
 
-function Test-SystemProxy {
+function Get-CurlProxy($url = 'https://example.com/') {
     try {
         $scoopProxy = get_config PROXY
-        if ($scoopProxy -and $scoopProxy -ne 'none' -and $scoopProxy -ne 'default') {
-            return $true
+        if ($scoopProxy -eq 'none') {
+            return $null
         }
-
-        $proxy = [System.Net.WebRequest]::DefaultWebProxy
-        if ($null -ne $proxy) {
-            $testUri = [System.Uri]'http://example.com/'
-            $proxyUri = $proxy.GetProxy($testUri)
-            if ($null -ne $proxyUri -and $proxyUri -ne $testUri) {
-                return $true
-            }
-        }
-
-        $sysProxy = [System.Net.WebRequest]::GetSystemWebProxy()
-        if ($null -eq $sysProxy) {
-            return $false
-        }
-        $testUri = [System.Uri]'http://example.com/'
-        $proxyUri = $sysProxy.GetProxy($testUri)
-        return ($null -ne $proxyUri -and $proxyUri -ne $testUri)
-    } catch {
-        return $false
-    }
-}
-
-function Get-CurlProxy($url) {
-    try {
-        $scoopProxy = get_config PROXY
-        if ($scoopProxy -and $scoopProxy -ne 'none' -and $scoopProxy -ne 'default') {
-            if ($scoopProxy -notmatch '^https?://|^socks5://') {
+        if ($scoopProxy -and $scoopProxy -ne 'default') {
+            if ($scoopProxy -notmatch '^(https?|socks[45][ah]?)://') {
                 $scoopProxy = "http://$scoopProxy"
             }
-            return $scoopProxy
+            return $scoopProxy.TrimEnd('/')
         }
 
         $testUri = [System.Uri]$url
-        $proxy = [System.Net.WebRequest]::DefaultWebProxy
-        if ($null -ne $proxy) {
-            $proxyUri = $proxy.GetProxy($testUri)
+        foreach ($provider in @([System.Net.WebRequest]::DefaultWebProxy, [System.Net.WebRequest]::GetSystemWebProxy())) {
+            if ($null -eq $provider) { continue }
+            $proxyUri = $provider.GetProxy($testUri)
             if ($null -ne $proxyUri -and $proxyUri.AbsoluteUri -ne $testUri.AbsoluteUri) {
-                return $proxyUri.AbsoluteUri
+                return $proxyUri.AbsoluteUri.TrimEnd('/')
             }
         }
 
-        $sysProxy = [System.Net.WebRequest]::GetSystemWebProxy()
-        if ($null -ne $sysProxy) {
-            $proxyUri = $sysProxy.GetProxy($testUri)
-            if ($null -ne $proxyUri -and $proxyUri.AbsoluteUri -ne $testUri.AbsoluteUri) {
-                return $proxyUri.AbsoluteUri
-            }
-        }
-
-        if ($env:ALL_PROXY) { return $env:ALL_PROXY }
-        if ($env:HTTPS_PROXY -and $url -like 'https*') { return $env:HTTPS_PROXY }
-        if ($env:HTTP_PROXY) { return $env:HTTP_PROXY }
+        if ($env:ALL_PROXY) { return $env:ALL_PROXY.TrimEnd('/') }
+        if ($env:HTTPS_PROXY -and $url -like 'https*') { return $env:HTTPS_PROXY.TrimEnd('/') }
+        if ($env:HTTP_PROXY) { return $env:HTTP_PROXY.TrimEnd('/') }
     } catch {}
 
     return $null
+}
+
+function Test-SystemProxy($url = 'https://example.com/') {
+    return ($null -ne (Get-CurlProxy $url))
 }
 
 function Test-ChinaWhitelistedHost($hostName) {
@@ -115,7 +86,7 @@ function Url_Proxy($url) {
             }
         }
 
-        if (Test-SystemProxy) {
+        if (Test-SystemProxy $url) {
             success "direct: $url (system proxy detected)"
             return $url
         }
@@ -150,7 +121,7 @@ function Url_Proxy($url) {
 
                     $isChina = $null
                     try {
-                        $ipInfoRaw = (curl.exe -s --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip") -join ''
+                        $ipInfoRaw = (curl.exe -s --noproxy '*' --connect-timeout 1 --max-time 2 "https://ip9.com.cn/get?ip=$ip") -join ''
                         $ipInfo = $ipInfoRaw | ConvertFrom-Json -ErrorAction SilentlyContinue
                         if ($ipInfo -and $ipInfo.ret -eq 200 -and $ipInfo.data -and $ipInfo.data.country_code) {
                             $isChina = ($ipInfo.data.country_code -eq "cn")
@@ -193,12 +164,73 @@ function uProxy($url) {
     return "$Proxy/$(strip_fragment $url)"
 }
 
+function Invoke-CurlTransfer {
+    <#
+        Executes a curl binary with targeted retries for transient TLS handshake
+        drops (exit code 35) and socket/HTTP2 resets, cleaning up partial files.
+    #>
+    param(
+        [string] $ExePath,
+        [string] $EngineName,
+        [string[]] $BaseArgs,
+        [string[]] $FallbackExtraArgs = @(),
+        [string] $To,
+        [int] $MaxAttempts = 4,
+        [hashtable] $Status = @{}
+    )
+
+    # 7: connect fail, 18: partial file, 35: TLS handshake drop (SSL_ERROR_SYSCALL/schannel),
+    # 52: empty reply, 55/56: send/recv reset, 92: HTTP/2 stream framing error over proxy
+    $recoverableExitCodes = @(7, 18, 35, 52, 55, 56, 92)
+    $lastCode = 0
+
+    for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
+        if (Test-Path $To) {
+            Remove-Item -Force $To -ErrorAction SilentlyContinue
+        }
+
+        $runArgs = $BaseArgs
+        # Switch to HTTP/1.1 on final retry in case the upstream proxy/CDN chokes on HTTP/2
+        if ($attempt -eq $MaxAttempts -and $FallbackExtraArgs.Count -gt 0) {
+            $runArgs = $FallbackExtraArgs + $BaseArgs
+        }
+
+        try {
+            $global:LASTEXITCODE = 0
+            & $ExePath @runArgs
+            $lastCode = $LASTEXITCODE
+            if ($lastCode -eq 0 -and (Test-Path $To) -and (Get-Item $To).Length -gt 0) {
+                $Status.ExitCode = 0
+                return $true
+            }
+        } catch {
+            warn "$EngineName execution exception: $_"
+            $lastCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { -1 }
+        }
+
+        if (Test-Path $To) {
+            Remove-Item -Force $To -ErrorAction SilentlyContinue
+        }
+
+        if ($attempt -lt $MaxAttempts -and ($recoverableExitCodes -contains $lastCode)) {
+            warn "$EngineName connection/TLS error (exit code $lastCode), retrying ($attempt/$($MaxAttempts - 1))..."
+            Start-Sleep -Milliseconds 400
+            continue
+        }
+
+        break
+    }
+
+    $Status.ExitCode = $lastCode
+    return $false
+}
+
 function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoProxy) {
     $downloadUrl = ($url -split '#')[0]
     $reqUrl = if ($NoProxy) { $downloadUrl } else { Url_Proxy($downloadUrl) }
     $isAccelerated = ($reqUrl -match "1122330\.xyz")
 
-    # 代理参数解析：如果为国内白名单或已走加速节点，直连下载；否则走代理
+    # 代理参数解析：如果为国内白名单、-NoProxy 或已走加速节点，直连下载；否则走代理
     $proxyArg = $null
     if (!$NoProxy -and !$isAccelerated) {
         $hostName = if ($downloadUrl -match "^https?://([^/]+)") { $matches[1] } else { $null }
@@ -207,12 +239,11 @@ function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoPro
         }
     }
 
-    # 确保目标文件夹存在
+    # 确保目标文件夹存在并清理残留文件
     $parent = Split-Path -Parent $to
     if ($parent -and !(Test-Path $parent)) {
         ensure $parent | Out-Null
     }
-    # 清理残留的 0 字节损坏文件
     if ((Test-Path $to) -and (Get-Item $to).Length -eq 0) {
         Remove-Item -Force $to -ErrorAction SilentlyContinue
     }
@@ -240,84 +271,51 @@ function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoPro
     }
 
     $progArg = if ($progress) { @('--progress-bar') } else { @('-sS') }
-    $proxyParams = if ($proxyArg) { @('-x', $proxyArg) } else { @() }
+    # Pass --noproxy * explicitly when direct so env HTTP_PROXY/HTTPS_PROXY does not hijack direct/whitelist downloads
+    $proxyParams = if ($proxyArg) { @('-x', $proxyArg) } else { @('--noproxy', '*') }
+    $commonCurlArgs = @(
+        '-f', '-L',
+        '--connect-timeout', '15',
+        '--retry', '2',
+        '--retry-delay', '1',
+        '--retry-connrefused'
+    ) + $proxyParams + $headers + $progArg + @('-o', $to, $reqUrl)
 
-    # =========================================================================
-    # Level 1 (最高优先级): 内置 curl-impersonate (BoringSSL 真实 Chrome 131 指纹)
-    # =========================================================================
-    $binDir = "$PSScriptRoot\bin"
-    $impersonateExe = "$binDir\curl-impersonate.exe"
-    if (!(Test-Path $impersonateExe)) {
-        $cmdCheck = Get-Command 'curl-impersonate' -ErrorAction SilentlyContinue
-        if ($cmdCheck) { $impersonateExe = $cmdCheck.Source }
-    }
-
-    $impersonateSuccess = $false
-    if (Test-Path $impersonateExe) {
-        $impersonateArgs = @(
-            '--impersonate', 'chrome131',
-            '-f', '-L',
-            '--connect-timeout', '15',
-            '--retry', '2',
-            '--retry-delay', '1',
-            '--retry-connrefused'
-        ) + $proxyParams + $headers + $progArg + @('-o', $to, $reqUrl)
-
-        try {
-            & $impersonateExe @impersonateArgs
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $to) -and (Get-Item $to).Length -gt 0) {
-                $impersonateSuccess = $true
-                return
-            }
-        } catch {
-            warn "curl-impersonate execution exception: $_"
+    # 解析并执行下载引擎流水线：Level 1 (curl-impersonate) -> Level 2 (系统 curl.exe)
+    $engines = @(
+        @{
+            Name              = 'curl-impersonate'
+            DefaultPath       = "$PSScriptRoot\bin\curl-impersonate.exe"
+            CommandName       = 'curl-impersonate'
+            PrefixArgs        = @('--impersonate', 'chrome131')
+            FallbackExtraArgs = @('--http1.1')
+            MaxAttempts       = 5
+            FailSuffix        = ', falling back to system curl.exe...'
+        },
+        @{
+            Name              = 'system curl.exe'
+            DefaultPath       = 'C:\Windows\System32\curl.exe'
+            CommandName       = 'curl.exe'
+            PrefixArgs        = @('-A', 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36')
+            FallbackExtraArgs = @()
+            MaxAttempts       = 3
+            FailSuffix        = '.'
         }
+    )
 
-        if (!$impersonateSuccess) {
-            warn "curl-impersonate download failed (exit code $LASTEXITCODE), falling back to system curl.exe..."
-            if ((Test-Path $to) -and (Get-Item $to).Length -eq 0) {
-                Remove-Item -Force $to -ErrorAction SilentlyContinue
-            }
+    foreach ($engine in $engines) {
+        $exePath = $engine.DefaultPath
+        if (!(Test-Path $exePath)) {
+            $cmdCheck = Get-Command $engine.CommandName -ErrorAction SilentlyContinue
+            $exePath = if ($cmdCheck) { $cmdCheck.Source } else { $null }
         }
-    }
-
-    # =========================================================================
-    # Level 2: 降级回退至 Windows 自带的 C:\Windows\System32\curl.exe (原生 HTTP/2)
-    # =========================================================================
-    $sysCurl = "C:\Windows\System32\curl.exe"
-    if (!(Test-Path $sysCurl)) {
-        $cmdCheck = Get-Command 'curl.exe' -ErrorAction SilentlyContinue
-        if ($cmdCheck) { $sysCurl = $cmdCheck.Source }
-    }
-
-    $sysCurlSuccess = $false
-    if (Test-Path $sysCurl) {
-        $ua = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36'
-        $sysCurlArgs = @(
-            '-f', '-L',
-            '-A', $ua,
-            '--connect-timeout', '15',
-            '--retry', '2',
-            '--retry-delay', '1',
-            '--retry-connrefused'
-        ) + $proxyParams + $headers + $progArg + @('-o', $to, $reqUrl)
-
-        try {
-            & $sysCurl @sysCurlArgs
-            if ($LASTEXITCODE -eq 0 -and (Test-Path $to) -and (Get-Item $to).Length -gt 0) {
-                $sysCurlSuccess = $true
-                return
-            }
-        } catch {
-            warn "system curl.exe execution exception: $_"
+        if (-not ($exePath -and (Test-Path $exePath))) { continue }
+        $status = @{ ExitCode = 0 }
+        $fullArgs = $engine.PrefixArgs + $commonCurlArgs
+        if (Invoke-CurlTransfer -ExePath $exePath -EngineName $engine.Name -BaseArgs $fullArgs -FallbackExtraArgs $engine.FallbackExtraArgs -To $to -MaxAttempts $engine.MaxAttempts -Status $status) {
+            return
         }
-
-        if (!$sysCurlSuccess) {
-            warn "system curl.exe download failed (exit code $LASTEXITCODE)."
-            if ((Test-Path $to) -and (Get-Item $to).Length -eq 0) {
-                Remove-Item -Force $to -ErrorAction SilentlyContinue
-            }
-        }
+        warn "$($engine.Name) download failed (exit code $($status.ExitCode))$($engine.FailSuffix)"
     }
 
     # =========================================================================
@@ -341,6 +339,13 @@ function Custom-Invoke-WebDownload ($url, $to, $cookies, $progress, [switch] $No
     $downloadUrl = ($url -split '#')[0]
     $reqUrl = if ($NoProxy) { $downloadUrl } else { Url_Proxy($downloadUrl) }
     $wreq = [Net.WebRequest]::Create($reqUrl)
+    $bypassProxy = $NoProxy -or ($reqUrl -match "1122330\.xyz")
+    if (!$bypassProxy -and $reqUrl -match "^https?://([^/]+)") {
+        $bypassProxy = Test-ChinaWhitelistedHost $matches[1]
+    }
+    if ($bypassProxy) {
+        $wreq.Proxy = $null
+    }
     if ($wreq -is [Net.HttpWebRequest]) {
         $wreq.UserAgent = Get-UserAgent
         if (-not ($downloadUrl -match 'sourceforge\.net' -or $downloadUrl -match 'portableapps\.com')) {
