@@ -164,10 +164,165 @@ function uProxy($url) {
     return "$Proxy/$(strip_fragment $url)"
 }
 
+function Format-Win32Arg([string] $Arg) {
+    if ($null -eq $Arg) { return '""' }
+    if ($Arg.Length -gt 0 -and $Arg -notmatch '[\s"]') { return $Arg }
+    $escaped = $Arg -replace '(\\*)"', '$1$1\"'
+    $escaped = $escaped -replace '(\\+)$', '$1$1'
+    return "`"$escaped`""
+}
+
+function ConvertFrom-CurlSize([string] $Text) {
+    if ([string]::IsNullOrWhiteSpace($Text)) { return 0.0 }
+    if ($Text -match '^([0-9]+(?:\.[0-9]+)?)([kKmMgGtT])?$') {
+        $val = [double]$matches[1]
+        switch ($matches[2]) {
+            'k' { return $val * 1024 }
+            'm' { return $val * 1048576 }
+            'g' { return $val * 1073741824 }
+            't' { return $val * 1099511627776 }
+            default { return $val }
+        }
+    }
+    return 0.0
+}
+
+function Format-HumanBytes([double] $Bytes) {
+    if ($Bytes -ge 1073741824) { return '{0:N2} GB' -f ($Bytes / 1073741824) }
+    if ($Bytes -ge 1048576)    { return '{0:N1} MB' -f ($Bytes / 1048576) }
+    if ($Bytes -ge 1024)       { return '{0:N1} KB' -f ($Bytes / 1024) }
+    return '{0:N0} B' -f $Bytes
+}
+
+function Format-SizePair([double] $Done, [double] $Total) {
+    if ($Total -ge 1073741824) { return '{0:N2}/{1:N2} GB' -f ($Done / 1073741824), ($Total / 1073741824) }
+    if ($Total -ge 1048576)    { return '{0:N1}/{1:N1} MB' -f ($Done / 1048576), ($Total / 1048576) }
+    if ($Total -ge 1024)       { return '{0:N1}/{1:N1} KB' -f ($Done / 1024), ($Total / 1024) }
+    return '{0:N0}/{1:N0} B' -f $Done, $Total
+}
+
+function Format-Duration([double] $Seconds) {
+    if ($Seconds -lt 0 -or [double]::IsNaN($Seconds) -or [double]::IsInfinity($Seconds)) { return '--:--' }
+    $ts = [TimeSpan]::FromSeconds([math]::Floor($Seconds))
+    if ($ts.TotalHours -ge 1) {
+        return '{0}:{1:D2}:{2:D2}' -f [int][math]::Floor($ts.TotalHours), $ts.Minutes, $ts.Seconds
+    }
+    return '{0:D2}:{1:D2}' -f $ts.Minutes, $ts.Seconds
+}
+
+function Write-CurlProgressLine {
+    param(
+        [string] $DisplayName,
+        [double] $DoneBytes,
+        [double] $TotalBytes,
+        [double] $SpeedBytes,
+        [string] $EtaText,
+        [double] $ElapsedSec,
+        [int]    $SpinnerIdx = 0,
+        [switch] $Completed
+    )
+
+    $esc = [char]0x1b
+    $cReset = "$esc[0m"
+    $cCyan  = "$esc[36m"
+    $cGreen = "$esc[32m"
+    $cYel   = "$esc[33m"
+    $cDim   = "$esc[90m"
+
+    $useUnicode = $false
+    try {
+        $useUnicode = ([Console]::OutputEncoding.CodePage -eq 65001) -or [bool]$env:WT_SESSION
+    } catch {}
+
+    $winWidth = 100
+    try {
+        if ([Console]::WindowWidth -gt 20) { $winWidth = [Console]::WindowWidth }
+    } catch {}
+    $maxCols = [math]::Max(40, $winWidth - 1)
+
+    if ($useUnicode) {
+        $spinFrames = @([char]0x280B, [char]0x2819, [char]0x2839, [char]0x2838, [char]0x283C, [char]0x2834, [char]0x2826, [char]0x2827, [char]0x2807, [char]0x280F)
+        $chFill = [char]0x2501
+        $chEmpty = [char]0x2500
+        $chDone = [char]0x2713
+    } else {
+        $spinFrames = @('|', '/', '-', '\')
+        $chFill = '='
+        $chEmpty = '-'
+        $chDone = '+'
+    }
+
+    $maxNameLen = if ($maxCols -lt 75) { 18 } else { 26 }
+    $nameText = $DisplayName
+    if ($nameText.Length -gt $maxNameLen) {
+        $nameText = $nameText.Substring(0, $maxNameLen - 3) + '...'
+    }
+
+    $spin = $spinFrames[$SpinnerIdx % $spinFrames.Count]
+
+    # Phase 1: Connecting / waiting for headers or redirect
+    if (-not $Completed -and $TotalBytes -le 0 -and $DoneBytes -le 0) {
+        $elapsed = Format-Duration $ElapsedSec
+        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  ${cDim}Connecting... $elapsed$cReset"
+        [Console]::Write("`r$line$esc[K")
+        return
+    }
+
+    # Phase 2b: Streaming with unknown total size
+    if (-not $Completed -and $TotalBytes -le 0) {
+        $sizeStr = Format-HumanBytes $DoneBytes
+        $spdStr  = "$(Format-HumanBytes $SpeedBytes)/s"
+        $elapsed = Format-Duration $ElapsedSec
+        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  $sizeStr  $cYel$spdStr$cReset  $cDim$elapsed$cReset"
+        [Console]::Write("`r$line$esc[K")
+        return
+    }
+
+    # Phase 2 & 3: Determinate progress bar (or 100% completed)
+    $pct = if ($Completed) { 100.0 } else { [math]::Min(100.0, [math]::Max(0.0, ($DoneBytes / $TotalBytes) * 100.0)) }
+    $pctStr = '{0,5:N1}%' -f $pct
+    $sizeStr = if ($Completed) { Format-HumanBytes $TotalBytes } else { Format-SizePair $DoneBytes $TotalBytes }
+    $spdStr  = "$(Format-HumanBytes $SpeedBytes)/s"
+    $timeStr = if ($Completed) { Format-Duration $ElapsedSec } else { "ETA $EtaText" }
+
+    $prefixChar = if ($Completed) { "$cGreen$chDone$cReset" } else { "$cCyan$spin$cReset" }
+    $leftVisibleLen = 2 + $nameText.Length + 2
+
+    $includeTime = $true
+    $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length + 2 + $timeStr.Length
+    $availBar = $maxCols - $leftVisibleLen - $rightVisibleLen - 2
+    if ($availBar -lt 10) {
+        $includeTime = $false
+        $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length
+        $availBar = $maxCols - $leftVisibleLen - $rightVisibleLen - 2
+    }
+    $barWidth = [math]::Max(8, [math]::Min(34, $availBar))
+
+    $filled = [int][math]::Round(($pct / 100.0) * $barWidth)
+    $filled = [math]::Min($barWidth, [math]::Max(0, $filled))
+    if (-not $Completed -and $filled -ge $barWidth) { $filled = $barWidth - 1 }
+    $empty  = $barWidth - $filled
+
+    $barColor = if ($Completed) { $cGreen } else { $cCyan }
+    $filledStr = if ($filled -gt 0) { New-Object string($chFill, $filled) } else { '' }
+    $emptyStr  = if ($empty -gt 0)  { New-Object string($chEmpty, $empty) } else { '' }
+    $barRender = "$barColor$filledStr$cDim$emptyStr$cReset"
+
+    $timeSeg = if ($includeTime) { "  $cDim$timeStr$cReset" } else { '' }
+    $pctRender = if ($Completed) { "$cGreen$pctStr$cReset" } else { $pctStr }
+
+    $line = "$prefixChar $cCyan$nameText$cReset  $barRender $pctRender  $sizeStr  $cYel$spdStr$cReset$timeSeg"
+    [Console]::Write("`r$line$esc[K")
+    if ($Completed) {
+        [Console]::WriteLine()
+    }
+}
+
 function Invoke-CurlTransfer {
     <#
         Executes a curl binary with targeted retries for transient TLS handshake
-        drops (exit code 35) and socket/HTTP2 resets, cleaning up partial files.
+        drops (exit code 35) and socket/HTTP2 resets, cleaning up partial files,
+        and renders a clean modern progress bar when interactive.
     #>
     param(
         [string] $ExePath,
@@ -175,7 +330,9 @@ function Invoke-CurlTransfer {
         [string[]] $BaseArgs,
         [string[]] $FallbackExtraArgs = @(),
         [string] $To,
-        [int] $MaxAttempts = 4,
+        [string] $DisplayName = '',
+        [bool]   $ShowProgress = $false,
+        [int]    $MaxAttempts = 4,
         [hashtable] $Status = @{}
     )
 
@@ -183,6 +340,9 @@ function Invoke-CurlTransfer {
     # 52: empty reply, 55/56: send/recv reset, 92: HTTP/2 stream framing error over proxy
     $recoverableExitCodes = @(7, 18, 35, 52, 55, 56, 92)
     $lastCode = 0
+    if ([string]::IsNullOrWhiteSpace($DisplayName)) {
+        $DisplayName = Split-Path -Leaf $To
+    }
 
     for ($attempt = 1; $attempt -le $MaxAttempts; $attempt++) {
         if (Test-Path $To) {
@@ -195,17 +355,144 @@ function Invoke-CurlTransfer {
             $runArgs = $FallbackExtraArgs + $BaseArgs
         }
 
-        try {
-            $global:LASTEXITCODE = 0
-            & $ExePath @runArgs
-            $lastCode = $LASTEXITCODE
-            if ($lastCode -eq 0 -and (Test-Path $To) -and (Get-Item $To).Length -gt 0) {
-                $Status.ExitCode = 0
-                return $true
+        if (-not $ShowProgress) {
+            try {
+                $global:LASTEXITCODE = 0
+                & $ExePath @runArgs
+                $lastCode = $LASTEXITCODE
+                if ($lastCode -eq 0 -and (Test-Path $To) -and (Get-Item $To).Length -gt 0) {
+                    $Status.ExitCode = 0
+                    return $true
+                }
+            } catch {
+                warn "$EngineName execution exception: $_"
+                $lastCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { -1 }
             }
-        } catch {
-            warn "$EngineName execution exception: $_"
-            $lastCode = if ($LASTEXITCODE -ne 0) { $LASTEXITCODE } else { -1 }
+        } else {
+            $esc = [char]0x1b
+            $proc = $null
+            $errLines = New-Object System.Collections.Generic.List[string]
+            $sw = [Diagnostics.Stopwatch]::StartNew()
+            $lastDrawMs = -1000L
+            $spinIdx = 0
+            $totalBytes = 0.0
+            $recvBytes = 0.0
+            $speedBytes = 0.0
+            $etaText = '--:--'
+            $cursorHidden = $false
+
+            try {
+                try {
+                    [Console]::CursorVisible = $false
+                    $cursorHidden = $true
+                } catch {}
+
+                $psi = New-Object System.Diagnostics.ProcessStartInfo
+                $psi.FileName = $ExePath
+                $psi.Arguments = (($runArgs | ForEach-Object { Format-Win32Arg $_ }) -join ' ')
+                $psi.UseShellExecute = $false
+                $psi.RedirectStandardError = $true
+                $psi.RedirectStandardOutput = $true
+                $psi.CreateNoWindow = $true
+
+                $proc = New-Object System.Diagnostics.Process
+                $proc.StartInfo = $psi
+                [void]$proc.Start()
+                $proc.BeginOutputReadLine()
+
+                $errTask = $proc.StandardError.ReadLineAsync()
+                while ($true) {
+                    $gotLine = $false
+                    try {
+                        $gotLine = $errTask.Wait(80)
+                    } catch {
+                        break
+                    }
+
+                    if ($gotLine) {
+                        $line = $null
+                        try { $line = $errTask.Result } catch { break }
+                        if ($null -eq $line) { break }
+
+                        if ($line -match '^\s*(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\d+)\s+(\S+)\s+(\S+)\s+(\S+)\s+(.*)$') {
+                            $parsedTotal = ConvertFrom-CurlSize $matches[2]
+                            $parsedRecv  = ConvertFrom-CurlSize $matches[4]
+                            $parsedAvg   = ConvertFrom-CurlSize $matches[7]
+                            $tail        = ($matches[9].Trim() -split '\s+') | Where-Object { $_ -ne '' }
+                            $parsedCur   = if ($tail.Count -ge 1) { ConvertFrom-CurlSize $tail[-1] } else { 0.0 }
+
+                            if ($parsedTotal -gt 0) { $totalBytes = $parsedTotal }
+                            if ($parsedRecv -gt 0)  { $recvBytes = $parsedRecv }
+                            $speedBytes = if ($parsedCur -gt 0) { $parsedCur } else { $parsedAvg }
+
+                            if ([int]$matches[1] -ge 100) {
+                                $etaText = '00:00'
+                            } elseif ($tail.Count -ge 4 -and $tail[2] -ne '--:--:--') {
+                                $etaText = $tail[2]
+                            } elseif ($totalBytes -gt 0 -and $speedBytes -gt 0) {
+                                $etaText = Format-Duration (($totalBytes - $recvBytes) / $speedBytes)
+                            }
+                        } elseif (-not [string]::IsNullOrWhiteSpace($line) -and $line -notmatch '^\s*%\s+Total\b' -and $line -notmatch '^\s*Dload\s+Upload\b') {
+                            [void]$errLines.Add($line.Trim())
+                        }
+
+                        $errTask = $proc.StandardError.ReadLineAsync()
+                    }
+
+                    if (($sw.ElapsedMilliseconds - $lastDrawMs) -ge 80) {
+                        $diskBytes = 0.0
+                        if (Test-Path $To) {
+                            try { $diskBytes = [double](Get-Item $To -ErrorAction SilentlyContinue).Length } catch {}
+                        }
+                        $shownDone = [math]::Max($recvBytes, $diskBytes)
+                        if ($totalBytes -gt 0 -and $shownDone -gt $totalBytes) { $shownDone = $totalBytes }
+                        if ($speedBytes -le 0 -and $shownDone -gt 0 -and $sw.Elapsed.TotalSeconds -gt 0.2) {
+                            $speedBytes = $shownDone / $sw.Elapsed.TotalSeconds
+                        }
+                        $liveEta = if ($totalBytes -gt 0 -and $speedBytes -gt 0) {
+                            Format-Duration ([math]::Max(0.0, ($totalBytes - $shownDone) / $speedBytes))
+                        } else {
+                            $etaText
+                        }
+                        Write-CurlProgressLine -DisplayName $DisplayName -DoneBytes $shownDone -TotalBytes $totalBytes -SpeedBytes $speedBytes -EtaText $liveEta -ElapsedSec $sw.Elapsed.TotalSeconds -SpinnerIdx $spinIdx
+                        $spinIdx++
+                        $lastDrawMs = $sw.ElapsedMilliseconds
+                    }
+                }
+
+                $proc.WaitForExit()
+                $lastCode = $proc.ExitCode
+                $sw.Stop()
+
+                if ($lastCode -eq 0 -and (Test-Path $To) -and (Get-Item $To).Length -gt 0) {
+                    $finalBytes = [double](Get-Item $To).Length
+                    $elapsedSec = [math]::Max($sw.Elapsed.TotalSeconds, 0.01)
+                    $avgSpeed = $finalBytes / $elapsedSec
+                    Write-CurlProgressLine -DisplayName $DisplayName -DoneBytes $finalBytes -TotalBytes $finalBytes -SpeedBytes $avgSpeed -EtaText '00:00' -ElapsedSec $sw.Elapsed.TotalSeconds -Completed
+                    $Status.ExitCode = 0
+                    return $true
+                }
+
+                # Clear progress bar before showing error diagnostics
+                [Console]::Write("`r$esc[K")
+                foreach ($errLine in $errLines) {
+                    Write-Host $errLine -ForegroundColor DarkRed
+                }
+            } catch {
+                [Console]::Write("`r$esc[K")
+                warn "$EngineName execution exception: $_"
+                $lastCode = -1
+            } finally {
+                if ($null -ne $proc) {
+                    try {
+                        if (-not $proc.HasExited) { $proc.Kill() }
+                    } catch {}
+                    try { $proc.Dispose() } catch {}
+                }
+                if ($cursorHidden) {
+                    try { [Console]::CursorVisible = $true } catch {}
+                }
+            }
         }
 
         if (Test-Path $To) {
@@ -270,7 +557,10 @@ function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoPro
         }
     }
 
-    $progArg = if ($progress) { @('--progress-bar') } else { @('-sS') }
+    $displayName = try { url_remote_filename $url } catch { Split-Path -Leaf $downloadUrl }
+    $showProgress = [bool]$progress
+    # Interactive mode parses curl's native stderr progress meter to render a custom progress bar
+    $progArg = if ($showProgress) { @() } else { @('-sS') }
     # Pass --noproxy * explicitly when direct so env HTTP_PROXY/HTTPS_PROXY does not hijack direct/whitelist downloads
     $proxyParams = if ($proxyArg) { @('-x', $proxyArg) } else { @('--noproxy', '*') }
     $commonCurlArgs = @(
@@ -312,7 +602,7 @@ function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoPro
         if (-not ($exePath -and (Test-Path $exePath))) { continue }
         $status = @{ ExitCode = 0 }
         $fullArgs = $engine.PrefixArgs + $commonCurlArgs
-        if (Invoke-CurlTransfer -ExePath $exePath -EngineName $engine.Name -BaseArgs $fullArgs -FallbackExtraArgs $engine.FallbackExtraArgs -To $to -MaxAttempts $engine.MaxAttempts -Status $status) {
+        if (Invoke-CurlTransfer -ExePath $exePath -EngineName $engine.Name -BaseArgs $fullArgs -FallbackExtraArgs $engine.FallbackExtraArgs -To $to -DisplayName $displayName -ShowProgress $showProgress -MaxAttempts $engine.MaxAttempts -Status $status) {
             return
         }
         warn "$($engine.Name) download failed (exit code $($status.ExitCode))$($engine.FailSuffix)"
