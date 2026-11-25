@@ -30,15 +30,22 @@ irm https://gitee.com/cmontage/scoop/raw/master/install.ps1 -outfile 'install.ps
 
 # 4. 安装基础解压与版本管理组件
 scoop install 7zip git
+
+# 5. （可选）安装 aria2 开启智能多线程加速，突破部分国内 CDN 单连接限速
+# 未安装 aria2 时会静默使用内置 curl-impersonate，无任何报错或额外提示
+scoop install aria2
+scoop config aria2-split 16
+scoop config aria2-max-connection-per-server 16
+scoop config aria2-warning-enabled false
 ```
 
 ## 核心特性与改进
 
 ### ⚡ 内置 `curl-impersonate` 真实浏览器指纹极速下载
 
-原版 Scoop 使用 .NET 的单流 HTTP/1.1，内置硬编码的 2KB 读缓冲区，速度极其缓慢；且在代理环境下经常遭遇 GitHub Releases / Cloudflare WAF 对机房代理 IP 的人机校验，抛出 `504 Gateway Timeout`。此外，传统的 aria2 在代理环境下存在 Range 切片冲突断流、无法国内分流等缺陷。
+原版 Scoop 使用 .NET 的单流 HTTP/1.1，内置硬编码的 2KB 读缓冲区，速度极其缓慢；且在代理环境下经常遭遇 GitHub Releases / Cloudflare WAF 对机房代理 IP 的人机校验，抛出 `504 Gateway Timeout`。此外，原版 Scoop 在开启 `aria2` 时会无差别注入 `--all-proxy`，既破坏国内直连，又容易因 GitHub 302 临时鉴权链接并发 Range 切片触发 403 封锁或连接重置。
 
-本项目内置了开箱即用的**四级自愈下载流水线**：
+本项目内置了开箱即用的**四级自愈下载流水线**，并为 `aria2` 构建了完全解耦的**智能分流调度与统一进度条引擎**：
 
 1. **Level 1（内置首选 · 真实 Chrome 浏览器指纹）**：
    - 仓库独立内置静态编译的 `curl-impersonate.exe`（BoringSSL + HTTP/2/HTTP/3）。
@@ -50,6 +57,19 @@ scoop install 7zip git
    - 若遇代理节点宕机或物理断网，自动无缝重定向到自建加速镜像继续下载。
 4. **Level 4（终极保底 · 增强 .NET WebRequest）**：
    - 极端环境下降级回退至优化后的 64KB 增强缓冲区 WebRequest。
+
+### 🚀 Aria2 智能多线程调度与现代化统一进度条
+
+针对部分国内 CDN（如夸克 `umcdn.quark.cn`）对**单条 TCP 连接限速（约 200 KB/s）**的场景，开启 `aria2`（`scoop config aria2-enabled true`）即可通过多线程叠加突破单连接瓶颈，同时不修改 `aria2` 程序本体（全部逻辑位于 [`custom/aria2.ps1`](./custom/aria2.ps1)）：
+
+- **不破坏国内直连与 GitHub 下载的智能路由**：
+  - **国内白名单 / 国内 IP**：强制直连多线程下载（传入 `--no-proxy=*` 并在子进程环境中彻底剥离 `HTTP_PROXY` / `HTTPS_PROXY` / `ALL_PROXY`），绝不走系统代理，不浪费代理流量。
+  - **GitHub / 自建加速镜像 / SOCKS 代理**：自动识别 `github.com`、`githubusercontent.com`、`githubassets.com`、`1122330.xyz` 及 SOCKS 代理场景，自动绕过 `aria2` 并交由内置 `curl-impersonate` 引擎下载，彻底规避 GitHub 并发 Range 403/504 与 `aria2` 不支持 SOCKS 的问题。
+  - **其他海外源**：通过 HTTP 代理多线程加速；若遇 WAF 拦截或异常退出，自动清理残留 `.aria2` 控制文件并无缝回退至 `curl-impersonate` 四级流水线。
+- **现代化统一彩色进度条**：
+  - 接管 `aria2c` 实时输出并复用 [`custom/proxy.ps1`](./custom/proxy.ps1) 的 `Write-CurlProgressLine` 渲染器，告别原版杂乱刷屏日志，统一展示旋转指示器、彩色进度条、百分比、已下载/总大小、实时速率、**并发连接数角标（如 `16x`）** 与剩余时间（ETA）。
+  - 自动探测终端 `OutputEncoding` 字形支持情况，在 GBK（CP936）老旧控制台下自动回退 ASCII 字符，避免出现 `?` 乱码。
+- **未安装静默兜底**：未安装 `aria2` 或关闭 `aria2-enabled` 时无任何报错或多余提示，自动静默使用内置 `curl-impersonate` 引擎。
 
 ### 🌐 智能分流与国内白名单直连
 
@@ -91,10 +111,11 @@ scoop install 7zip git
 
 | 特性 | 官方 Scoop | 本版本 |
 | :--- | :--- | :--- |
-| **下载引擎** | .NET 2KB 读循环（慢） | **内置 `curl-impersonate` + Chrome 131 指纹 + 原生 curl** |
-| **下载速度** | 通常 1~5 MB/s | **轻松跑满物理千兆宽带（50~100+ MB/s）** |
-| **代理 504 / WAF 拦截** | 频繁报错超时 | **真实浏览器 TLS 指纹，完全穿透规避** |
-| **国内软件下载** | 若开代理常被减速 | **国内白名单直连分流，秒速直通** |
+| **下载引擎** | .NET 2KB 读循环 / 原生 aria2（无分流） | **内置 `curl-impersonate` (Chrome 131 指纹) + `aria2` 智能分流调度** |
+| **下载速度** | 通常 1~5 MB/s | **单连接跑满千兆宽带，限速 CDN 可由 aria2 16 并发叠加加速** |
+| **进度条体验** | 简易文本或原版 aria2 杂乱表格 | **统一现代彩色进度条（实时速率 / ETA / 并发角标 `16x` / 编码自适应）** |
+| **代理 504 / WAF 拦截** | 频繁报错超时 | **真实浏览器 TLS 指纹，GitHub 自动绕过 aria2 彻底规避** |
+| **国内软件下载** | 若开代理常被减速或走代理 | **国内白名单强制直连分流（含 aria2 剥离代理环境变量）** |
 | **运行中进程占用** | 报错中止 | **交互式确认 + 自动终止 + 提权清理** |
 | **未添加 main 桶更新** | 报错中止更新 | **底层动态重定向，无感静默更新** |
 | **更新及安装源** | GitHub 官方 | **Gitee 国内镜像链路** |
