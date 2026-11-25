@@ -210,6 +210,16 @@ function Format-Duration([double] $Seconds) {
     return '{0:D2}:{1:D2}' -f $ts.Minutes, $ts.Seconds
 }
 
+function Test-ConsoleGlyph([string] $Text) {
+    try {
+        $enc = [Console]::OutputEncoding
+        if ($null -eq $enc -or [string]::IsNullOrEmpty($Text)) { return $false }
+        return ($enc.GetString($enc.GetBytes($Text)) -eq $Text)
+    } catch {
+        return $false
+    }
+}
+
 function Write-CurlProgressLine {
     param(
         [string] $DisplayName,
@@ -229,26 +239,33 @@ function Write-CurlProgressLine {
     $cYel   = "$esc[33m"
     $cDim   = "$esc[90m"
 
-    $useUnicode = $false
-    try {
-        $useUnicode = ([Console]::OutputEncoding.CodePage -eq 65001) -or [bool]$env:WT_SESSION
-    } catch {}
-
     $winWidth = 100
     try {
         if ([Console]::WindowWidth -gt 20) { $winWidth = [Console]::WindowWidth }
     } catch {}
     $maxCols = [math]::Max(40, $winWidth - 1)
 
-    if ($useUnicode) {
+    # Probe [Console]::OutputEncoding per glyph rather than $env:WT_SESSION, because
+    # PS 5.1 inside Windows Terminal still defaults OutputEncoding to CP936 (GBK) where ✓/⠋ become '?'.
+    if (Test-ConsoleGlyph ([string][char]0x280B)) {
         $spinFrames = @([char]0x280B, [char]0x2819, [char]0x2839, [char]0x2838, [char]0x283C, [char]0x2834, [char]0x2826, [char]0x2827, [char]0x2807, [char]0x280F)
-        $chFill = [char]0x2501
-        $chEmpty = [char]0x2500
-        $chDone = [char]0x2713
     } else {
         $spinFrames = @('|', '/', '-', '\')
+    }
+
+    if ((Test-ConsoleGlyph ([string][char]0x2501)) -and (Test-ConsoleGlyph ([string][char]0x2500))) {
+        $chFill = [char]0x2501
+        $chEmpty = [char]0x2500
+    } else {
         $chFill = '='
         $chEmpty = '-'
+    }
+
+    if (Test-ConsoleGlyph ([string][char]0x2713)) {
+        $chDone = [char]0x2713
+    } elseif (Test-ConsoleGlyph ([string][char]0x221A)) {
+        $chDone = [char]0x221A
+    } else {
         $chDone = '+'
     }
 
