@@ -39,6 +39,7 @@ Scoop Root
 └── custom/                  # ★ 所有自改业务逻辑必须集中在此目录 ★
     ├── init.ps1             # 核心扩展加载入口与多作用域函数覆写
     ├── proxy.ps1            # 智能代理分流、国内白名单与多级下载引擎
+    ├── aria2.ps1            # Aria2 智能分流、直连隔离、GitHub 绕过与现代化进度条
     ├── process.ps1          # 进程检测、管理员提权强制终止与服务控制
     ├── buckets.ps1          # 默认仓库 official、自建源注入与 main 检测绕过
     └── bin/

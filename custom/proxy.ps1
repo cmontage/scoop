@@ -229,6 +229,7 @@ function Write-CurlProgressLine {
         [string] $EtaText,
         [double] $ElapsedSec,
         [int]    $SpinnerIdx = 0,
+        [string] $Tag = '',
         [switch] $Completed
     )
 
@@ -237,6 +238,7 @@ function Write-CurlProgressLine {
     $cCyan  = "$esc[36m"
     $cGreen = "$esc[32m"
     $cYel   = "$esc[33m"
+    $cMag   = "$esc[35m"
     $cDim   = "$esc[90m"
 
     $winWidth = 100
@@ -276,11 +278,13 @@ function Write-CurlProgressLine {
     }
 
     $spin = $spinFrames[$SpinnerIdx % $spinFrames.Count]
+    $hasTag = -not [string]::IsNullOrWhiteSpace($Tag)
 
     # Phase 1: Connecting / waiting for headers or redirect
     if (-not $Completed -and $TotalBytes -le 0 -and $DoneBytes -le 0) {
         $elapsed = Format-Duration $ElapsedSec
-        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  ${cDim}Connecting... $elapsed$cReset"
+        $connLabel = if ($hasTag) { "Connecting ($Tag)... $elapsed" } else { "Connecting... $elapsed" }
+        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  ${cDim}$connLabel$cReset"
         [Console]::Write("`r$line$esc[K")
         return
     }
@@ -290,7 +294,8 @@ function Write-CurlProgressLine {
         $sizeStr = Format-HumanBytes $DoneBytes
         $spdStr  = "$(Format-HumanBytes $SpeedBytes)/s"
         $elapsed = Format-Duration $ElapsedSec
-        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  $sizeStr  $cYel$spdStr$cReset  $cDim$elapsed$cReset"
+        $streamTagSeg = if ($hasTag) { "  $cMag$Tag$cReset" } else { '' }
+        $line = "$cCyan$spin$cReset $cCyan$nameText$cReset  $sizeStr  $cYel$spdStr$cReset$streamTagSeg  $cDim$elapsed$cReset"
         [Console]::Write("`r$line$esc[K")
         return
     }
@@ -305,12 +310,20 @@ function Write-CurlProgressLine {
     $prefixChar = if ($Completed) { "$cGreen$chDone$cReset" } else { "$cCyan$spin$cReset" }
     $leftVisibleLen = 2 + $nameText.Length + 2
 
+    $includeTag = $hasTag
     $includeTime = $true
-    $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length + 2 + $timeStr.Length
+    $tagVisibleLen = if ($includeTag) { 2 + $Tag.Length } else { 0 }
+    $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length + $tagVisibleLen + 2 + $timeStr.Length
     $availBar = $maxCols - $leftVisibleLen - $rightVisibleLen - 2
+    if ($availBar -lt 10 -and $includeTag) {
+        $includeTag = $false
+        $tagVisibleLen = 0
+        $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length + 2 + $timeStr.Length
+        $availBar = $maxCols - $leftVisibleLen - $rightVisibleLen - 2
+    }
     if ($availBar -lt 10) {
         $includeTime = $false
-        $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length
+        $rightVisibleLen = $pctStr.Length + 2 + $sizeStr.Length + 2 + $spdStr.Length + $tagVisibleLen
         $availBar = $maxCols - $leftVisibleLen - $rightVisibleLen - 2
     }
     $barWidth = [math]::Max(8, [math]::Min(34, $availBar))
@@ -325,10 +338,11 @@ function Write-CurlProgressLine {
     $emptyStr  = if ($empty -gt 0)  { New-Object string($chEmpty, $empty) } else { '' }
     $barRender = "$barColor$filledStr$cDim$emptyStr$cReset"
 
+    $tagSeg  = if ($includeTag)  { "  $cMag$Tag$cReset" } else { '' }
     $timeSeg = if ($includeTime) { "  $cDim$timeStr$cReset" } else { '' }
     $pctRender = if ($Completed) { "$cGreen$pctStr$cReset" } else { $pctStr }
 
-    $line = "$prefixChar $cCyan$nameText$cReset  $barRender $pctRender  $sizeStr  $cYel$spdStr$cReset$timeSeg"
+    $line = "$prefixChar $cCyan$nameText$cReset  $barRender $pctRender  $sizeStr  $cYel$spdStr$cReset$tagSeg$timeSeg"
     [Console]::Write("`r$line$esc[K")
     if ($Completed) {
         [Console]::WriteLine()
@@ -529,9 +543,9 @@ function Invoke-CurlTransfer {
     return $false
 }
 
-function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoProxy) {
+function Custom-Invoke-Download ($url, $to, $cookies, $progress, [switch] $NoProxy, [switch] $SkipUrlProxy) {
     $downloadUrl = ($url -split '#')[0]
-    $reqUrl = if ($NoProxy) { $downloadUrl } else { Url_Proxy($downloadUrl) }
+    $reqUrl = if ($NoProxy -or $SkipUrlProxy) { $downloadUrl } else { Url_Proxy($downloadUrl) }
     $isAccelerated = ($reqUrl -match "1122330\.xyz")
 
     # 代理参数解析：如果为国内白名单、-NoProxy 或已走加速节点，直连下载；否则走代理

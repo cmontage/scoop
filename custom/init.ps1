@@ -21,6 +21,21 @@ if (Test-Path "$customDir\proxy.ps1") {
     }
 }
 
+# 1.5 加载 Aria2 智能分流与现代化进度条模块（依赖 proxy.ps1）
+if (Test-Path "$customDir\aria2.ps1") {
+    . "$customDir\aria2.ps1"
+    # 强制覆盖官方 Aria2 下载函数，实现国内直连、GitHub 自动分流与统一彩色进度条
+    function script:Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $dir, $cookies = $null, $use_cache = $true, $check_hash = $true) {
+        Custom-Invoke-CachedAria2Download $app $version $manifest $architecture $dir $cookies $use_cache $check_hash
+    }
+    function global:Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $dir, $cookies = $null, $use_cache = $true, $check_hash = $true) {
+        Custom-Invoke-CachedAria2Download $app $version $manifest $architecture $dir $cookies $use_cache $check_hash
+    }
+    function Invoke-CachedAria2Download ($app, $version, $manifest, $architecture, $dir, $cookies = $null, $use_cache = $true, $check_hash = $true) {
+        Custom-Invoke-CachedAria2Download $app $version $manifest $architecture $dir $cookies $use_cache $check_hash
+    }
+}
+
 # 2. 加载进程/服务运行检测与提权控制模块
 if (Test-Path "$customDir\process.ps1") {
     . "$customDir\process.ps1"
